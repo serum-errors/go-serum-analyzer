@@ -32,7 +32,18 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.File:
 		case *ast.CallExpr:
 		case *ast.FuncDecl: // n.b. does not include inlines -- that's a "FuncLit".  *does* include methods, though.
-			fmt.Printf("\t%#v\n", stmt.Body.List)
+			fmt.Printf("\tfunc name: %#v\n", stmt.Name.Name)
+			if stmt.Recv != nil { // not really sure why there's a list here, it's either nil or it's one element.
+				for idx, field := range stmt.Recv.List {
+					fmt.Printf("\trecv[%d]: %s : %s\n",
+						idx,
+						field.Names, // careful: you're experiencing AST here: it can have multiple names per type.  I wonder if I want a higher level view for this.
+						field.Type,
+					)
+				}
+			}
+			fmt.Printf("\tfunc sig: %#v\n", stmt.Type)
+			fmt.Printf("\tbody: %#v\n", stmt.Body.List)
 		}
 	})
 

@@ -2,20 +2,22 @@ package main
 
 func main() {
 	One()
-	Two()
+	Two("shoop")
 	err := Three()
 	_ = err
 	anon := func() error {
 		return nil
 	}()
 	err = anon
+	bark := (&Foo{"xoo"}).Bar("zinc")
+	_ = bark
 }
 
 func One() {
 
 }
 
-func Two() {
+func Two(zook string) {
 	One()
 }
 
@@ -27,6 +29,6 @@ type Foo struct {
 	x string
 }
 
-func (strt *Foo) Bar() string {
-	return strt.x
+func (strt *Foo) Bar(zonk string) string {
+	return zonk + strt.x
 }
