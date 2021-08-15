@@ -3,107 +3,85 @@ package analysis
 import (
 	"fmt"
 	"go/ast"
-	"os"
-	"reflect"
-	"strings"
+	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-var Analyzer = &analysis.Analyzer{
-	Name:     "rerr-lint",
-	Doc:      "Checks for exhaustive handling of errors based on rerr codes.",
+var VerifyAnalyzer = &analysis.Analyzer{
+	Name:     "ree-verify",
+	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      run,
+	Run:      runVerify,
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+// FUTURE: may add another analyser that is "ree-exhaustive".
+
+func runVerify(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
+	// First pass: let's just see what error types we might need to reason about.
+	// We'll do this by looking at... every type seen by the analysis pass.  Yep.
+	// (I can't see any easier way to do this, unfortunately.)
+	// ... oh great, these pointers aren't even unique.  For real?
+	// ........ https://godoc.org/golang.org/x/tools/go/types/typeutil apparently has a feature for this.
+	allTypes := map[types.Type]struct{}{}
+	for _, typ := range pass.TypesInfo.Types {
+		allTypes[typ.Type] = struct{}{}
+	}
+	for typ := range allTypes {
+		fmt.Printf("%v\n", typ)
+	}
+	fmt.Print("\n\n\n")
+
+	// We only need to see function declarations at first; we'll recurse ourselves within there.
 	nodeFilter := []ast.Node{
-		(*ast.File)(nil),
-		(*ast.CallExpr)(nil),
 		(*ast.FuncDecl)(nil),
-		(*ast.FuncLit)(nil),
 	}
 
+	// Let's look only at functions that return errors;
+	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
 	inspect.Preorder(nodeFilter, func(node ast.Node) {
-		fmt.Printf("node: %T -- pos: %s -- content: %#v\n", node, pass.Fset.PositionFor(node.Pos(), true), node)
-		switch stmt := node.(type) {
-		case *ast.File:
-		case *ast.CallExpr:
-		case *ast.FuncDecl: // n.b. does not include inlines -- that's a "FuncLit".  *does* include methods, though.
-			fmt.Printf("\tfunc name: %#v\n", stmt.Name.Name)
-			if stmt.Recv != nil { // not really sure why there's a list here, it's either nil or it's one element.
-				fmt.Printf("\trecv: %s\n", quickString(stmt.Recv))
-			}
-			fmt.Printf("\tfunc sig: %s -> %s\n", quickString(stmt.Type.Params), quickString(stmt.Type.Results))
-			fmt.Printf("\tbody: %#v\n", stmt.Body.List)
-			ast.Fprint(os.Stdout, pass.Fset, stmt.Body, ast.NotNilFilter)
+		funcDecl := node.(*ast.FuncDecl)
+		resultsList := funcDecl.Type.Results
+		if resultsList == nil {
+			return
+		}
+		for _, resultFieldClause := range resultsList.List {
+			typ := pass.TypesInfo.Types[resultFieldClause.Type].Type
+			fmt.Printf("%v -- %v\n", typ, types.Implements(typ, tError))
+			// TODO ....
 		}
 	})
-
-	// seems to be roughly:
-	// - look for `*ast.ReturnStmt`
-	// - pluck out `.Results[relevantone].(*ast.Ident).Obj` -- this is a pointer
-	//   - ... i guess whole expressions can be in here too instead of just an Ident, so have fun with that.  Recursion on ast.Expr, maybe, is the right thing?
-	// - look for any `*ast.AssignStmt`, look for their `.Lhs`, these should all be `*ast.Ident`, look at the `.Obj` -- is it the familiar one?  Okay, follow the matching `.Rhs`.
-	//   - yes, indeed -- this `.Obj` stuff is tracking the actual origin of the var, so anything that assigns to this, we found it.
-	//   - ... i guess probably the `.Lhs` can have a struct var ref or something too probably, not sure if that's relevant to us though.
-	//     - these are just called `*ast.SelectorExpr`, I think.
-
-	// so we can track everything that assigns to a var (ignoring conditions) fairly easily, apparently.
-	// (i haven't checked closures yet, but kinda assuming at this point.)  (... okay, now i have, yes, they are seen too.  convenient.)
-	// the one big obvious limitation here is... if you assign something to a var, and then try to filter it and assign back to the same var, i can't easily see that.
-	// (which is awfully unfortunate, because the demo I wrote earlier definitely tries to do exactly that, heh.  (maybe it's not good patterns anyway; unknown.))
-	// i'm still trying to refrain from needing full on symbolic execution or ssa here.
-	//
-	// i guess if you are always doing the retagging right before returning (like, literally in the same expression), this is clear and fine.
-	// maybe we can look back a very limited amount before a return statement, in linearly preceding statements?... and as long as we can find a retagging that's unconditionally "before", it counts?  (so, pop up, and step back, but never deeper, more or less should do it?  technically you'd miss an unconditional closure that way, but whatever.)
-
-	// remember there's also a second half: walking backward from return statements is for checking what the current function can yield.
-	// there's also the need to check that it handles (or at least acknowledges) whatever its child calls can return.  that flows the opposite direction.
 
 	return nil, nil
 }
 
-// quickString spits out a string for something quickly and briefly, and not entirely recursively.
+var tError = types.NewInterfaceType([]*types.Func{
+	types.NewFunc(token.NoPos, nil, "Error", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
+}, nil).Complete()
+
+func init() {
+	//fmt.Printf("%v\n\n", tError)
+}
+
+// findErrorTypes looks at every function in the package,
+// and then at each of their return types,
+// and determines if they match the ree.Error interface,
+// and if they do, adds them to the list to be returned.
 //
-// you can use `ast.Fprint(os.Stdout, pass.Fset, stmt, ast.NotNilFilter)` if you're really wanting a mouthful,
-// but it's a truly huge output, includes lots of position info you'd probably find redundant, etc.
-func quickString(x interface{}) string {
-	if reflect.ValueOf(x).IsNil() {
-		return fmt.Sprintf("%T(nil)", x)
-	}
-	switch y := x.(type) {
-	case *ast.FieldList:
-		var sb strings.Builder
-		sb.WriteString("(")
-		for _, field := range y.List {
-			for _, name := range field.Names { // mind: you're experiencing AST here: it can have multiple names per type.
-				sb.WriteString(name.Name)
-				sb.WriteString(" ")
-				sb.WriteString(quickString(field.Type)) // this can be a whole heckin expression, technically.  (and often is, because commonly it has at least a "StarExpr" kicking it off.)
-				sb.WriteString(",")
-			}
-			if len(field.Names) == 0 {
-				// or, it can have no name at all, just a type.
-				sb.WriteString("_ ")
-				sb.WriteString(quickString(field.Type))
-				sb.WriteString(",")
-			}
-		}
-		sb.WriteString(")")
-		return sb.String()
-	case *ast.StarExpr:
-		return fmt.Sprintf("*(%v)", y.X)
-	case fmt.Stringer:
-		return y.String()
-	case fmt.GoStringer:
-		return y.GoString()
-	default:
-		return fmt.Sprintf("%#v", x)
-	}
+// This should of course identify ree.ErrorStruct itself,
+// but may also identify other types in other libraries that match.
+func findErrorTypes() {
+
+}
+
+// checkErrorTypeHasLegibleCode makes sure that the `Code() string` function
+// on a type either returns a constant or a single struct field.
+// If you want to write your own ree.Error, it should be this simple.
+func checkErrorTypeHasLegibleCode() { // probably should return a lookup function.
+
 }
