@@ -12,6 +12,10 @@ func Two() error {
 	return &Error{"hello"}
 }
 
+func Three() *Error {
+	return &Error{"more types!"}
+}
+
 type Error struct {
 	TheCode string
 }

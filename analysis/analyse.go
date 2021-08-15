@@ -11,6 +11,8 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+var logf = fmt.Printf
+
 var VerifyAnalyzer = &analysis.Analyzer{
 	Name:     "ree-verify",
 	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
@@ -23,20 +25,6 @@ var VerifyAnalyzer = &analysis.Analyzer{
 func runVerify(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
-	// First pass: let's just see what error types we might need to reason about.
-	// We'll do this by looking at... every type seen by the analysis pass.  Yep.
-	// (I can't see any easier way to do this, unfortunately.)
-	// ... oh great, these pointers aren't even unique.  For real?
-	// ........ https://godoc.org/golang.org/x/tools/go/types/typeutil apparently has a feature for this.
-	allTypes := map[types.Type]struct{}{}
-	for _, typ := range pass.TypesInfo.Types {
-		allTypes[typ.Type] = struct{}{}
-	}
-	for typ := range allTypes {
-		fmt.Printf("%v\n", typ)
-	}
-	fmt.Print("\n\n\n")
-
 	// We only need to see function declarations at first; we'll recurse ourselves within there.
 	nodeFilter := []ast.Node{
 		(*ast.FuncDecl)(nil),
@@ -44,18 +32,33 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 
 	// Let's look only at functions that return errors;
 	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
+	//
+	// Returning more than one error will result in anything but the last one not being analysed.
+	// Returning an error in any result field but the last one will result in it not being analysed.
+	//
+	// We'll actually look for anything that _implements_ `error` (!), not just the literal type.
+	// Sometimes these will also, furthermore, perhaps implement our own extended error interface...
+	// but if so, that's something we'll look into more later, not right now.
+	var funcsToAnalyse []*ast.FuncDecl
 	inspect.Preorder(nodeFilter, func(node ast.Node) {
 		funcDecl := node.(*ast.FuncDecl)
 		resultsList := funcDecl.Type.Results
 		if resultsList == nil {
 			return
 		}
-		for _, resultFieldClause := range resultsList.List {
-			typ := pass.TypesInfo.Types[resultFieldClause.Type].Type
-			fmt.Printf("%v -- %v\n", typ, types.Implements(typ, tError))
-			// TODO ....
+		lastResult := resultsList.List[len(resultsList.List)-1]
+		typ := pass.TypesInfo.Types[lastResult.Type].Type
+		if !types.Implements(typ, tError) {
+			return
 		}
+		logf("func %q returns an error interface (type name: %q)\n", funcDecl.Name.Name, typ)
+		funcsToAnalyse = append(funcsToAnalyse, funcDecl)
 	})
+	logf("%d functions in this package return errors and will be analysed.\n\n", len(funcsToAnalyse))
+
+	// First output: warn directly about any functions that are exported
+	// if they return errors, but don't declare error codes in their docs.
+	// TODO
 
 	return nil, nil
 }
