@@ -100,7 +100,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				// - This is probably not an exhaustive list...
 
 				lastResult := stmt.Results[len(stmt.Results)-1]
-				logf("%s\n\n", findAffectors(lastResult, funcDecl))
+				logf("%s\n\n", findAffectors(pass, lastResult, funcDecl))
 			}
 			return true
 		})
@@ -182,7 +182,7 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 	return codes, nil
 }
 
-// findAffectors looks up what can affect the given expression
+// findAffectorsInFunc looks up what can affect the given expression
 // (which, generally, can be anything you'd expect to see in a ReturnStmt -- so, variables, unaryExpr, a bunch of things...),
 // and recurses in this until it hits either the creation of a value,
 // or function call boundaries (`*ast.CallExpr`).
@@ -191,7 +191,7 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 // as it does so, it'll totally disregarding logical branching,
 // instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
 //
-func findAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
+func findAffectorsInFunc(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
 	switch exprt := expr.(type) {
 	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
 		return []ast.Expr{expr}
@@ -222,24 +222,57 @@ func findAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
 									panic("what?")
 								}
 							} else {
-								result = append(result, findAffectors(stmt2.Rhs[i], within)...)
+								result = append(result, findAffectorsInFunc(stmt2.Rhs[i], within)...)
 							}
 						}
 					case *ast.SelectorExpr:
-						logf("findAffectors is looking at an assignment inside a value of interest?  fun\n")
+						logf("findAffectorsInFunc is looking at an assignment inside a value of interest?  fun\n")
 					}
 				}
 			}
 			return true
 		})
 	case *ast.UnaryExpr:
-		return findAffectors(exprt.X, within)
+		return findAffectorsInFunc(exprt.X, within)
 	case *ast.CompositeLit: // Actual value creation!
 		return []ast.Expr{expr} // TODO we're almost there?  would need to apply checkErrorTypeHasLegibleCode on whatever type this is... but it is at least guaranteed to be a value matching `error`.
 	case *ast.BasicLit: // Actual value creation!
 		return []ast.Expr{expr} // TODO we're almost there?  checkErrorTypeHasLegibleCode needed again.
 	default:
-		logf(":: findAffectors does not yet handle %#v\n", expr)
+		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
+	}
+	return
+}
+
+// findAffectors applies findAffectorsInFunc, and then _keeps going_...
+// until it's resolved everything into one of:
+//  - value creation,
+//  - a CallExpr that targets another function that has declared error codes (yay!),
+//  - a CallExpr that crosses package boundaries,
+//  - a CallExpr that's an interface (we can't really look deeper than that),
+//  - a CallExpr it's seen before,
+//  - ... I think that's it?
+//
+// For the first two: we're happy: we can analyse this func completely.
+// Encountering any of the others means we've found a source of unknowns.
+//
+func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (result []ast.Expr) {
+	stepResults := findAffectorsInFunc(expr, startingFunc)
+	for _, x := range stepResults {
+		switch exprt := x.(type) {
+		case *ast.CallExpr: // Alright, let's goooooo
+			logf("fun expr time: %#v ... %#v\n", exprt.Fun, pass.TypesInfo.Types[exprt.Fun])
+			switch funst := exprt.Fun.(type) {
+			case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
+				calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
+				// TODO get the return statements, that's above, extract it
+				result = append(result, findAffectors(pass, nil, calledFunc)...)
+			case *ast.SelectorExpr: // this is what calls to other packages look like.
+				logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
+			}
+		case *ast.CompositeLit, *ast.BasicLit:
+			result = append(result, x)
+		}
 	}
 	return
 }

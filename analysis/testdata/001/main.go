@@ -1,5 +1,9 @@
 package main
 
+import (
+	"fmt"
+)
+
 func main() {
 	One()
 }
@@ -77,6 +81,16 @@ func Seven() error {
 	var err error
 	err = uff
 	return err
+}
+
+// Eight isn't going to fulfill what it says it will do.
+// It also makes a call to another package.
+//
+// Errors:
+//
+//    - hello-error -- is a lie, won't actually happen.
+func Eight() error {
+	return fmt.Errorf("not a nice structural error")
 }
 
 type Error struct {
