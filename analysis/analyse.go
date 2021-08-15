@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"go/ast"
+	"os"
 	"reflect"
 	"strings"
 
@@ -40,8 +41,30 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 			fmt.Printf("\tfunc sig: %s -> %s\n", quickString(stmt.Type.Params), quickString(stmt.Type.Results))
 			fmt.Printf("\tbody: %#v\n", stmt.Body.List)
+			ast.Fprint(os.Stdout, pass.Fset, stmt.Body, ast.NotNilFilter)
 		}
 	})
+
+	// seems to be roughly:
+	// - look for `*ast.ReturnStmt`
+	// - pluck out `.Results[relevantone].(*ast.Ident).Obj` -- this is a pointer
+	//   - ... i guess whole expressions can be in here too instead of just an Ident, so have fun with that.  Recursion on ast.Expr, maybe, is the right thing?
+	// - look for any `*ast.AssignStmt`, look for their `.Lhs`, these should all be `*ast.Ident`, look at the `.Obj` -- is it the familiar one?  Okay, follow the matching `.Rhs`.
+	//   - yes, indeed -- this `.Obj` stuff is tracking the actual origin of the var, so anything that assigns to this, we found it.
+	//   - ... i guess probably the `.Lhs` can have a struct var ref or something too probably, not sure if that's relevant to us though.
+	//     - these are just called `*ast.SelectorExpr`, I think.
+
+	// so we can track everything that assigns to a var (ignoring conditions) fairly easily, apparently.
+	// (i haven't checked closures yet, but kinda assuming at this point.)  (... okay, now i have, yes, they are seen too.  convenient.)
+	// the one big obvious limitation here is... if you assign something to a var, and then try to filter it and assign back to the same var, i can't easily see that.
+	// (which is awfully unfortunate, because the demo I wrote earlier definitely tries to do exactly that, heh.  (maybe it's not good patterns anyway; unknown.))
+	// i'm still trying to refrain from needing full on symbolic execution or ssa here.
+	//
+	// i guess if you are always doing the retagging right before returning (like, literally in the same expression), this is clear and fine.
+	// maybe we can look back a very limited amount before a return statement, in linearly preceding statements?... and as long as we can find a retagging that's unconditionally "before", it counts?  (so, pop up, and step back, but never deeper, more or less should do it?  technically you'd miss an unconditional closure that way, but whatever.)
+
+	// remember there's also a second half: walking backward from return statements is for checking what the current function can yield.
+	// there's also the need to check that it handles (or at least acknowledges) whatever its child calls can return.  that flows the opposite direction.
 
 	return nil, nil
 }
