@@ -80,6 +80,11 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	}
 	logf("%d functions in this package return errors and declared codes for them, and will be further analysed.\n\n", len(funcClaims))
 
+	// Okay -- let's look at the functions that have made claims about their error codes.
+	// We'll explore deeply to find everything that can actually affect their error return value.
+	// When we reach data initialization... we look at if those types implement coded errors, and try to figure out what their actual code value is.
+	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
+	// Anything else is trouble.
 	for _, funcDecl := range funcsToAnalyse {
 		claimedCodes := funcClaims[funcDecl]
 		if claimedCodes == nil {
@@ -88,9 +93,10 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		affectOrigins := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
 		logf("trace found these origins of error data...\n")
 		for _, aff := range affectOrigins {
-			logf(" - %s\n", pass.Fset.PositionFor(aff.Pos(), true))
+			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(aff.Pos(), true), aff, checkErrorTypeHasLegibleCode(pass, aff))
 		}
 		logf("end of found origins.\n\n")
+
 	}
 
 	return nil, nil
@@ -98,6 +104,11 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 
 var tError = types.NewInterfaceType([]*types.Func{
 	types.NewFunc(token.NoPos, nil, "Error", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
+}, nil).Complete()
+
+var tReeError = types.NewInterfaceType([]*types.Func{
+	types.NewFunc(token.NoPos, nil, "Error", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
+	types.NewFunc(token.NoPos, nil, "Code", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
 }, nil).Complete()
 
 func init() {
@@ -287,20 +298,12 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 	return
 }
 
-// findErrorTypes looks at every function in the package,
-// and then at each of their return types,
-// and determines if they match the ree.Error interface,
-// and if they do, adds them to the list to be returned.
-//
-// This should of course identify ree.ErrorStruct itself,
-// but may also identify other types in other libraries that match.
-func findErrorTypes() {
-
-}
-
 // checkErrorTypeHasLegibleCode makes sure that the `Code() string` function
 // on a type either returns a constant or a single struct field.
 // If you want to write your own ree.Error, it should be this simple.
-func checkErrorTypeHasLegibleCode() { // probably should return a lookup function.
-
+func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
+	typ := pass.TypesInfo.Types[seen].Type
+	// FIXME absolutely wild, assuming that we've got a literal here.  sometimes we have calls here, or will when we make more fun test packages or fix some of the other todos.
+	typ = types.NewPointer(typ) // FIXME, terrible hack.  quietly throwing away all the unarys left us in an awkward position.
+	return types.Implements(typ, tReeError)
 }
