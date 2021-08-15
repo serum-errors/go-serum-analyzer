@@ -50,6 +50,22 @@ func Five() (interface{}, error) {
 	return Four()
 }
 
+// Five is a demo function with multiple returns
+// which is returning the result of another function
+// (which *also* has multiple returns).
+//
+// Errors:
+//
+//    - hello-error -- is sometimes returned.
+//    - zonk-error -- is returned at other times.
+func Six(flip bool) error {
+	err := Two()
+	if flip {
+		_, err = Four()
+	}
+	return err
+}
+
 type Error struct {
 	TheCode string
 }

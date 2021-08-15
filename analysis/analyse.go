@@ -98,7 +98,14 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
 				// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 				// - This is probably not an exhaustive list...
-				_ = stmt.Results
+
+				lastResult := stmt.Results[len(stmt.Results)-1]
+				switch lastResult.(type) {
+				case *ast.CallExpr:
+					logf("TODO: callexpr returns are complicated, punting for now\n")
+				default:
+					logf("%v\n", getAffectors(lastResult, funcDecl))
+				}
 			}
 			return true
 		})
@@ -178,6 +185,34 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 		}
 	}
 	return codes, nil
+}
+
+func getAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
+	switch stmt := expr.(type) {
+	case *ast.Ident: // Lovely!  These are easy.  (Although likely to have significant taint spread.)
+		// Look for for `*ast.AssignStmt` in the function that could've affected this.
+		ast.Inspect(within, func(node ast.Node) bool {
+			// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
+			switch stmt2 := node.(type) {
+			case *ast.AssignStmt:
+				// Look for our ident's object in the left-hand-side of the assign.
+				// Either follow up on the statement at the same index in the Rhs,
+				// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
+				for i, clause := range stmt2.Lhs {
+					if clause.(*ast.Ident).Obj == stmt.Obj {
+						logf(":: sup %#v = %#v\n", clause, i /*stmt2.Rhs[i]*/) // lol CallExpr again
+					}
+				}
+			}
+			return true
+		})
+	case *ast.UnaryExpr:
+		_ = stmt
+	case *ast.BasicLit: // I guess it's not impossible to make one of these match the interface (though I'd be impressed).
+	default:
+		logf(":: getAffectors does not yet handle %#v\n", expr)
+	}
+	return
 }
 
 // findErrorTypes looks at every function in the package,
