@@ -69,6 +69,9 @@ there are two separate problems we're solving:
 	- we *can* make a default case with a panic be what you write, and what we check, then.
 	- we'll only be able to recognize so many patterns.  (Mostly focusing on switch cases, probably.)
 		- the first pattern will be switches on literally the code string value.  no prefixes or suffixes or wildcards, nothing fancy at all: literals.
+			- it will also probably require that the error switch (and the unconditional type cast for the interface, and the `Code()` unboxing), comes literally after (in the AST) an assignment to an error value.
+				- this avoids the taint explosion problem, and is the only way I can really imagine this working in syntactically common golang.
+				- one could also make a convention of `x, err = func(){ x, err := foo(); switch err.Code{ /.../ }}` to get a new scope and dodge the taint problem, but... considering that still needs the Three Cursed Lines afterwards, it's unclear if this is a useful idea.
 		- in general it has to be something that clearly checks all the options at once, because we don't want to get into symbolic execution territory (still).  (switch statements accomplish this!)
 	- we can add more patterns over time!
 		- maybe the router function idea will actually be good.
