@@ -85,25 +85,12 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		if claimedCodes == nil {
 			continue
 		}
-		ast.Inspect(funcDecl, func(node ast.Node) bool {
-			switch stmt := node.(type) {
-			case *ast.FuncLit:
-				return false // We don't want to see return statements from in a nested function right now.
-			case *ast.ReturnStmt:
-				// TODO stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
-				logf("function %q has a return statement: %s\n", funcDecl.Name.Name, stmt.Results)
-				// This can go a lot of ways:
-				// - You can have a plain `*ast.Ident` (aka returning a variable).
-				// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
-				// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
-				// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
-				// - This is probably not an exhaustive list...
-
-				lastResult := stmt.Results[len(stmt.Results)-1]
-				logf("%s\n\n", findAffectors(pass, lastResult, funcDecl))
-			}
-			return true
-		})
+		affectOrigins := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
+		logf("trace found these origins of error data...\n")
+		for _, aff := range affectOrigins {
+			logf(" - %s\n", pass.Fset.PositionFor(aff.Pos(), true))
+		}
+		logf("end of found origins.\n\n")
 	}
 
 	return nil, nil
@@ -244,6 +231,30 @@ func findAffectorsInFunc(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr
 	return
 }
 
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affs []ast.Expr) {
+	// TODO this should probably be approximately a good point for memoization?
+	ast.Inspect(funcDecl, func(node ast.Node) bool {
+		switch stmt := node.(type) {
+		case *ast.FuncLit:
+			return false // We don't want to see return statements from in a nested function right now.
+		case *ast.ReturnStmt:
+			// TODO stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
+			logf("function %q has a return statement: %s\n", funcDecl.Name.Name, stmt.Results)
+			// This can go a lot of ways:
+			// - You can have a plain `*ast.Ident` (aka returning a variable).
+			// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
+			// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
+			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
+			// - This is probably not an exhaustive list...
+
+			lastResult := stmt.Results[len(stmt.Results)-1]
+			affs = append(affs, findAffectors(pass, lastResult, funcDecl)...)
+		}
+		return true
+	})
+	return
+}
+
 // findAffectors applies findAffectorsInFunc, and then _keeps going_...
 // until it's resolved everything into one of:
 //  - value creation,
@@ -265,8 +276,7 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			switch funst := exprt.Fun.(type) {
 			case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
 				calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
-				// TODO get the return statements, that's above, extract it
-				result = append(result, findAffectors(pass, nil, calledFunc)...)
+				result = append(result, findAffectorsOfErrorReturnInFunc(pass, calledFunc)...)
 			case *ast.SelectorExpr: // this is what calls to other packages look like.
 				logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
 			}
