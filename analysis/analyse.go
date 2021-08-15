@@ -102,9 +102,9 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				lastResult := stmt.Results[len(stmt.Results)-1]
 				switch lastResult.(type) {
 				case *ast.CallExpr:
-					logf("TODO: callexpr returns are complicated, punting for now\n")
+					logf("TODO: callexpr returns are complicated, punting for now\n\n")
 				default:
-					logf("%v\n", getAffectors(lastResult, funcDecl))
+					logf("%s\n\n", findAffectors(lastResult, funcDecl))
 				}
 			}
 			return true
@@ -187,8 +187,19 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 	return codes, nil
 }
 
-func getAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
-	switch stmt := expr.(type) {
+// findAffectors looks up what can affect the given expression
+// (which, generally, can be anything you'd expect to see in a ReturnStmt -- so, variables, unaryExpr, a bunch of things...),
+// and recurses in this until it hits either the creation of a value,
+// or function call boundaries (`*ast.CallExpr`).
+//
+// So, it'll follow any number of assignment statements, for example;
+// as it does so, it'll totally disregarding logical branching,
+// instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
+//
+func findAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
+	switch exprt := expr.(type) {
+	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
+		return []ast.Expr{expr}
 	case *ast.Ident: // Lovely!  These are easy.  (Although likely to have significant taint spread.)
 		// Look for for `*ast.AssignStmt` in the function that could've affected this.
 		ast.Inspect(within, func(node ast.Node) bool {
@@ -199,18 +210,41 @@ func getAffectors(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
 				// Either follow up on the statement at the same index in the Rhs,
 				// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
 				for i, clause := range stmt2.Lhs {
-					if clause.(*ast.Ident).Obj == stmt.Obj {
-						logf(":: sup %#v = %#v\n", clause, i /*stmt2.Rhs[i]*/) // lol CallExpr again
+					switch clauset := clause.(type) {
+					case *ast.Ident:
+						if clauset.Obj == exprt.Obj {
+							if len(stmt2.Lhs) > len(stmt2.Rhs) {
+								// Destructuring mode.
+								// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+								if i != len(stmt2.Lhs)-1 {
+									panic("unsupported: tracking through a call that's a destructuring assignment and has the error as non-last return")
+								}
+								// Because it's a CallExpr, we're done here: this is part of the result.
+								switch stmt2.Rhs[0].(type) {
+								case *ast.CallExpr:
+									result = append(result, stmt2.Rhs[0])
+								default:
+									panic("what?")
+								}
+							} else {
+								result = append(result, findAffectors(stmt2.Rhs[i], within)...)
+							}
+						}
+					case *ast.SelectorExpr:
+						logf("findAffectors is looking at an assignment inside a value of interest?  fun\n")
 					}
 				}
 			}
 			return true
 		})
 	case *ast.UnaryExpr:
-		_ = stmt
-	case *ast.BasicLit: // I guess it's not impossible to make one of these match the interface (though I'd be impressed).
+		return findAffectors(exprt.X, within)
+	case *ast.CompositeLit: // Actual value creation!
+		return []ast.Expr{expr} // TODO we're almost there?  would need to apply checkErrorTypeHasLegibleCode on whatever type this is... but it is at least guaranteed to be a value matching `error`.
+	case *ast.BasicLit: // Actual value creation!
+		return []ast.Expr{expr} // TODO we're almost there?  checkErrorTypeHasLegibleCode needed again.
 	default:
-		logf(":: getAffectors does not yet handle %#v\n", expr)
+		logf(":: findAffectors does not yet handle %#v\n", expr)
 	}
 	return
 }

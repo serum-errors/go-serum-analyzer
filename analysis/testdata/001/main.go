@@ -66,6 +66,19 @@ func Six(flip bool) error {
 	return err
 }
 
+// Seven is ... probably out of scope.
+//
+// Errors:
+//
+//    - hello-error -- is always returned.
+func Seven() error {
+	uff := &Error{}
+	uff.TheCode = "hello-error"
+	var err error
+	err = uff
+	return err
+}
+
 type Error struct {
 	TheCode string
 }
