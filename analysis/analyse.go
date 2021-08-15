@@ -100,12 +100,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				// - This is probably not an exhaustive list...
 
 				lastResult := stmt.Results[len(stmt.Results)-1]
-				switch lastResult.(type) {
-				case *ast.CallExpr:
-					logf("TODO: callexpr returns are complicated, punting for now\n\n")
-				default:
-					logf("%s\n\n", findAffectors(lastResult, funcDecl))
-				}
+				logf("%s\n\n", findAffectors(lastResult, funcDecl))
 			}
 			return true
 		})
