@@ -4,16 +4,28 @@ func main() {
 	One()
 }
 
+/*
+	One is a demo function.
+
+	Errors:
+
+		- hello-error -- always returned.
+*/
 func One() error {
 	return Two()
 }
 
+// Two is a demo function.
+//
+// Errors:
+//
+//    - hello-error -- is always returned.
 func Two() error {
-	return &Error{"hello"}
+	return &Error{"hello-error"}
 }
 
 func Three() *Error {
-	return &Error{"more types!"}
+	return &Error{"hello-error-literal"}
 }
 
 type Error struct {
