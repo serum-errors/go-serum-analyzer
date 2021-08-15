@@ -22,16 +22,17 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	nodeFilter := []ast.Node{
 		(*ast.File)(nil),
 		(*ast.CallExpr)(nil),
+		(*ast.FuncDecl)(nil),
+		(*ast.FuncLit)(nil),
 	}
 
 	inspect.Preorder(nodeFilter, func(node ast.Node) {
+		fmt.Printf("node: %T -- pos: %s -- content: %#v\n", node, pass.Fset.PositionFor(node.Pos(), true), node)
 		switch stmt := node.(type) {
 		case *ast.File:
-			fmt.Printf("%#v\n", stmt)
 		case *ast.CallExpr:
-			fmt.Printf("%#v\n", stmt)
-			pass.Reportf(stmt.Fun.Pos(), "a call")
-			fmt.Printf("%s\n", pass.Fset.PositionFor(stmt.Fun.Pos(), true))
+		case *ast.FuncDecl: // n.b. does not include inlines -- that's a "FuncLit".  *does* include methods, though.
+			fmt.Printf("\t%#v\n", stmt.Body.List)
 		}
 	})
 
