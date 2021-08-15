@@ -78,6 +78,31 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			logf("function %q declares error codes %s\n", funcDecl.Name.Name, codes)
 		}
 	}
+	logf("%d functions in this package return errors and declared codes for them, and will be further analysed.\n\n", len(funcClaims))
+
+	for _, funcDecl := range funcsToAnalyse {
+		claimedCodes := funcClaims[funcDecl]
+		if claimedCodes == nil {
+			continue
+		}
+		ast.Inspect(funcDecl, func(node ast.Node) bool {
+			switch stmt := node.(type) {
+			case *ast.FuncLit:
+				return false // We don't want to see return statements from in a nested function right now.
+			case *ast.ReturnStmt:
+				// TODO stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
+				logf("function %q has a return statement: %s\n", funcDecl.Name.Name, stmt.Results)
+				// This can go a lot of ways:
+				// - You can have a plain `*ast.Ident` (aka returning a variable).
+				// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
+				// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
+				// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
+				// - This is probably not an exhaustive list...
+				_ = stmt.Results
+			}
+			return true
+		})
+	}
 
 	return nil, nil
 }

@@ -6,6 +6,7 @@ func main() {
 
 /*
 	One is a demo function.
+	It calls another function that returns an error.
 
 	Errors:
 
@@ -16,6 +17,7 @@ func One() error {
 }
 
 // Two is a demo function.
+// It returns an error value it creates itself.
 //
 // Errors:
 //
@@ -26,6 +28,26 @@ func Two() error {
 
 func Three() *Error {
 	return &Error{"hello-error-literal"}
+}
+
+// Four is a demo function with multiple returns.
+//
+// Errors:
+//
+//    - zonk-error -- is always returned.
+func Four() (string, error) {
+	return "something", &Error{"zonk-error"}
+}
+
+// Five is a demo function with multiple returns
+// which is returning the result of another function
+// (which *also* has multiple returns).
+//
+// Errors:
+//
+//    - zonk-error -- is always returned.
+func Five() (interface{}, error) {
+	return Four()
 }
 
 type Error struct {
