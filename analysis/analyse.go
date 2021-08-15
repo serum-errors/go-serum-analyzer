@@ -65,6 +65,10 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	funcClaims := map[*ast.FuncDecl][]string{}
 	for _, funcDecl := range funcsToAnalyse {
 		codes, err := findErrorDocs(funcDecl)
+		if err != nil {
+			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
+			continue
+		}
 		if codes == nil {
 			if funcDecl.Name.IsExported() {
 				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
@@ -72,9 +76,6 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		} else {
 			funcClaims[funcDecl] = codes
 			logf("function %q declares error codes %s\n", funcDecl.Name.Name, codes)
-		}
-		if err != nil {
-			pass.Reportf(funcDecl.Pos(), "%s", err)
 		}
 	}
 
@@ -122,21 +123,27 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 		line := strings.TrimSpace(line)
 		switch {
 		case needBlankLine && line != "":
-			return nil, fmt.Errorf("odd docstring: need a blank line after the 'Errors:' block indicator")
+			return nil, fmt.Errorf("need a blank line after the 'Errors:' block indicator")
 		case needBlankLine && line == "":
 			needBlankLine = false
 		case line == "Errors:" && parsing == false:
 			parsing = true
 			needBlankLine = true
 		case line == "Errors:" && parsing == true:
-			return nil, fmt.Errorf("odd docstring: repeated 'Errors:' block indicator")
+			return nil, fmt.Errorf("repeated 'Errors:' block indicator")
 		case parsing == true && strings.HasPrefix(line, "- "):
 			end := strings.Index(line, " --")
 			if end == -1 {
-				return nil, fmt.Errorf("odd docstring: mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name")
+				return nil, fmt.Errorf("mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name")
+			}
+			if end < 2 {
+				return nil, fmt.Errorf("an error code can't be purely whitespace")
 			}
 			code := line[2:end]
 			code = strings.TrimSpace(code)
+			if code == "" {
+				return nil, fmt.Errorf("an error code can't be purely whitespace")
+			}
 			if _, exists := seen[code]; !exists {
 				seen[code] = struct{}{}
 				codes = append(codes, code)
