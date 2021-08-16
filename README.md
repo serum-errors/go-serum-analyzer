@@ -216,3 +216,9 @@ If the programmer fails to describe any errors that the code actually does retur
 the analyzer will prompt them to fix this.
 If the programmer finds that they're having to document too many error codes,
 then they will be encouraged to refactor their code until the error handling becomes reasonable.
+
+
+License
+-------
+
+SPDX-License-Identifier: Apache-2.0 OR MIT
