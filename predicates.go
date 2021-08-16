@@ -1,15 +1,15 @@
-package rerr
+package ree
 
 import "strings"
 
-func MatchTag(tag string) func(error) bool {
+func MatchCode(code string) func(error) bool {
 	return func(e error) bool {
 		e2, ok := e.(Error)
 		if !ok {
 			return false
 		}
 		// future: add support for exactly one '*'.
-		return e2.Tag() == tag
+		return e2.Code() == code
 	}
 }
 

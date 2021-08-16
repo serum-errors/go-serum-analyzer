@@ -1,10 +1,16 @@
 package main
 
+// Don't take this file too seriously.
+// It was an early draft,
+// and based on the presumption that we'd need a lot of landmarks from a library;
+// this turns out to be an avoidable constraint,
+// and so a lot of this draft is probably overwraught and will be eventually be discarded.
+
 import (
 	"fmt"
 	"os"
 
-	ree "github.com/warpfork/go-rerr"
+	"github.com/warpfork/go-ree"
 )
 
 func main() {
@@ -41,7 +47,7 @@ func Coolfunc() error {
 	err = OtherThingThatErrorsUnknownly()
 	ree.TagByRouting(&err,
 		ree.Route{"cool-nozzle-bork", os.IsExist},
-		ree.Route{"cool-sozzle-fizz", ree.MatchTag("cool-sozzle-fizz")},
+		ree.Route{"cool-sozzle-fizz", ree.MatchCode("cool-sozzle-fizz")},
 		ree.Route{"razzle-*", nil},   // A wildcard plus no predicate means passthrough errors with tags matching the wildcard.
 		ree.Route{"", os.IsNotExist}, // Empty string means ignore it.  Use with caution.
 		// The unavoidable final fallback is, if none of these routes match... a runtime panic.

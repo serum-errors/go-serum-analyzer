@@ -1,4 +1,4 @@
-package rerr
+package ree
 
 func Tag(err *error, tag string) {
 

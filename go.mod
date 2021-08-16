@@ -1,3 +1,3 @@
-module github.com/warpfork/go-rerr
+module github.com/warpfork/go-ree
 
 go 1.16

@@ -14,7 +14,7 @@ import (
 
 var ToyAnalyzer = &analysis.Analyzer{
 	Name:     "demo",
-	Doc:      "Checks for exhaustive handling of errors based on rerr codes.",
+	Doc:      "Checks for exhaustive handling of errors based on ree codes.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      runToy,
 }

@@ -1,5 +1,5 @@
-rerr -- **R**outable **err**ors
-===============================
+go-ree -- **R**e-**E**xamining **E**rrors
+=========================================
 
 Error handling is a complex business.
 The complexity is high in any program;
@@ -7,9 +7,12 @@ it also grows rapidly when programs are networked,
 and a user's action may have triggered errors from any one of a series of dependent programs...
 which may have been written in multiple languages, etc, etc.
 
-`rerr` is a short spec for semantic errors which should be reasonably useful
+`ree` is a short spec for semantic errors which should be reasonably useful
 and reasonable serializable from any program, and parsable and chainable by any program.
 Even across languages.
+
+This repo is concerned with golang code, and golang tooling,
+but the concepts and the error serialization form are language agnostic.
 
 
 Routable Errors
@@ -135,7 +138,7 @@ The **message** is supposed to be prose, ready to show to a human user.
 The **details** are freetext, but as a key-value map, can be inspected more individually.
 Most of the details should be repeated in the message already, if they're important to a human user.
 
-Libraries for implementing rerr patterns will typically have some sort of wrapper functions
+Libraries for implementing ree patterns will typically have some sort of wrapper functions
 for developers to define a function that sets an error code,
 accepts some known detail parameters that are expected for this error code,
 and templates the details into a message, all at once.
@@ -152,14 +155,14 @@ A longer list is allowed, but rarely used.
 
 If you have an API that truly needs to report many errors, you can use the cause list,
 but beware that if more than one cause is present,
-while all rerr libraries should _handle_ that data without loss,
-when it comes to printing, many rerr libraries may choose not to print all of the causes anyway,
+while all ree libraries should _handle_ that data without loss,
+when it comes to printing, many ree libraries may choose not to print all of the causes anyway,
 for fear of overloading a human reader.
 
 
-### When not to use Rerr
+### When not to use Ree
 
-You can probably pretty much always use `rerr` conventions.
+You can probably pretty much always use `ree` conventions.
 
 Sometimes in high-performance internal APIs (e.g., think: something where you're returning `io.EOF`, etc),
 you will want to skip the message component or having any "details" maps.
@@ -188,3 +191,28 @@ because it encourages examining errors and handling them close to where they occ
 or at least understanding and categorizing how they should affect a user of the package.
 Doing this habitually and ecosystemically should mean every package has a relatively limited and clear number of error codes to return,
 and overall make logical responses to error codes easier to build because there's only so much ever needing to be handled in one place.)
+
+
+Analysis tools in Golang
+------------------------
+
+See the `analysis` folder, which contains a distinct go module, and tooling.
+
+(This is in early development and not yet usable.)
+
+In brief, this tooling will:
+
+1. Look for functions which have a comment block which describes error codes;
+2. For such functions, statically analyze them (and any other functions they call) to see where data in errors returned actually originates from;
+3. Find the ree "code" in those error value origin sites;
+4. Ultimately, check that the error codes claimed in the docs are actually true.
+
+(The model used is one of simple tainting, but this is sufficient to reason about code that is reasonably well-structured.)
+
+This tooling should faciliate a conversation between the programmer and the analyzer:
+the programmer writes a claim in their function docs,
+and then the analyzer checks it.
+If the programmer fails to describe any errors that the code actually does return,
+the analyzer will prompt them to fix this.
+If the programmer finds that they're having to document too many error codes,
+then they will be encouraged to refactor their code until the error handling becomes reasonable.
