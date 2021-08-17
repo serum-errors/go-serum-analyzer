@@ -189,7 +189,7 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 // as it does so, it'll totally disregarding logical branching,
 // instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
 //
-func findAffectorsInFunc(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
+func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
 	switch exprt := expr.(type) {
 	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
 		return []ast.Expr{expr}
@@ -220,7 +220,7 @@ func findAffectorsInFunc(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr
 									panic("what?")
 								}
 							} else {
-								result = append(result, findAffectorsInFunc(stmt2.Rhs[i], within)...)
+								result = append(result, findAffectorsInFunc(pass, stmt2.Rhs[i], within)...)
 							}
 						}
 					case *ast.SelectorExpr:
@@ -231,11 +231,13 @@ func findAffectorsInFunc(expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr
 			return true
 		})
 	case *ast.UnaryExpr:
-		return findAffectorsInFunc(exprt.X, within)
-	case *ast.CompositeLit: // Actual value creation!
-		return []ast.Expr{expr} // TODO we're almost there?  would need to apply checkErrorTypeHasLegibleCode on whatever type this is... but it is at least guaranteed to be a value matching `error`.
-	case *ast.BasicLit: // Actual value creation!
-		return []ast.Expr{expr} // TODO we're almost there?  checkErrorTypeHasLegibleCode needed again.
+		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
+		if types.Implements(pass.TypesInfo.Types[expr].Type, tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
+			return []ast.Expr{expr}
+		}
+		return findAffectorsInFunc(pass, exprt.X, within)
+	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
+		return []ast.Expr{expr}
 	default:
 		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
 	}
@@ -279,7 +281,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 // Encountering any of the others means we've found a source of unknowns.
 //
 func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (result []ast.Expr) {
-	stepResults := findAffectorsInFunc(expr, startingFunc)
+	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
 		case *ast.CallExpr: // Alright, let's goooooo
@@ -293,6 +295,8 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
 			result = append(result, x)
+		default:
+			result = append(result, x)
 		}
 	}
 	return
@@ -303,7 +307,5 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 // If you want to write your own ree.Error, it should be this simple.
 func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
 	typ := pass.TypesInfo.Types[seen].Type
-	// FIXME absolutely wild, assuming that we've got a literal here.  sometimes we have calls here, or will when we make more fun test packages or fix some of the other todos.
-	typ = types.NewPointer(typ) // FIXME, terrible hack.  quietly throwing away all the unarys left us in an awkward position.
 	return types.Implements(typ, tReeError)
 }
