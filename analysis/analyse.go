@@ -15,7 +15,7 @@ import (
 var logf = fmt.Printf
 
 var VerifyAnalyzer = &analysis.Analyzer{
-	Name:     "ree-verify",
+	Name:     "reeverify",
 	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      runVerify,
