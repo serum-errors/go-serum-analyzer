@@ -8,9 +8,9 @@ import (
 
 func TestToyAnalyzer(t *testing.T) {
 	t.Skip("this was for experiments only, not really a test")
-	analysistest.Run(t, analysistest.TestData()+"/toy", ToyAnalyzer)
+	analysistest.Run(t, analysistest.TestData(), ToyAnalyzer, "toy")
 }
 
 func TestVerifyAnalyzer(t *testing.T) {
-	analysistest.Run(t, analysistest.TestData()+"/001", VerifyAnalyzer)
+	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "001", "docformat")
 }

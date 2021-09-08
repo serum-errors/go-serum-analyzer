@@ -14,6 +14,8 @@ import (
 
 var logf = fmt.Printf
 
+// var logf = func(_ string, _ ...interface{}) {}
+
 var VerifyAnalyzer = &analysis.Analyzer{
 	Name:     "reeverify",
 	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
