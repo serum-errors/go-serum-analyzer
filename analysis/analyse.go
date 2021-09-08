@@ -143,7 +143,7 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 	if funcDecl.Doc == nil {
 		return nil, nil
 	}
-	var parsing, needBlankLine bool
+	var parsing, needBlankLine, done bool
 	var codes []string
 	seen := map[string]struct{}{}
 	for _, line := range strings.Split(funcDecl.Doc.Text(), "\n") {
@@ -153,12 +153,12 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 			return nil, fmt.Errorf("need a blank line after the 'Errors:' block indicator")
 		case needBlankLine && line == "":
 			needBlankLine = false
-		case line == "Errors:" && parsing == false:
+		case line == "Errors:" && (parsing || done):
+			return nil, fmt.Errorf("repeated 'Errors:' block indicator")
+		case line == "Errors:" && !parsing && !done:
 			parsing = true
 			needBlankLine = true
-		case line == "Errors:" && parsing == true:
-			return nil, fmt.Errorf("repeated 'Errors:' block indicator")
-		case parsing == true && strings.HasPrefix(line, "- "):
+		case parsing && strings.HasPrefix(line, "- "):
 			end := strings.Index(line, " --")
 			if end == -1 {
 				return nil, fmt.Errorf("mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name")
@@ -175,8 +175,9 @@ func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 				seen[code] = struct{}{}
 				codes = append(codes, code)
 			}
-		case parsing == true && line == "":
-			return codes, nil
+		case parsing && line == "":
+			done = true
+			parsing = false
 		}
 	}
 	return codes, nil
