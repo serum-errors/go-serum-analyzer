@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -117,70 +116,11 @@ func init() {
 	//fmt.Printf("%v\n\n", tError)
 }
 
-// findErrorDocs looks at the doc comments on a function,
-// tries to parse out error code declarations that we can recognize,
-// and returns the error code strings from that.
-//
-// The declaration format is:
-//   - strip a leading "^//" if present.
-//   - strip any more leading whitespace.
-//   - a line that is exactly "Errors:" starts a declaration block.
-//   - exactly one blank line must follow, or it's a bad format.
-//   - the next line must match "^- (.*) --", and the captured group is an error code.
-//     - note that this is after leading whitespace strip.  (probably you should indent these, for readability.)
-//     - for simplier parsing, any line that starts with "- " will be slurped,
-//       and we'll consider it an error if the rest of the pattern doesn't follow.
-//     - the capture group can be stripped for whitespace again.  (perhaps the author wanted to align things.)
-//   - this may repeat.  if lines do not start that that pattern, they are skipped.
-//      - note that the same code may appear multiple times.  this is acceptable, and should be deduplicated.
-//   - when there's another fully blank line, the parse is ended.
-// This format happens to be amenable to letting you write the closest thing godocs have to a list.
-// (You should probably indent things "enough" to make that render right, but we're not checking that here right now.)
-//
-// If there are no error declarations, (nil, nil) is returned.
-// If there's what looks like an error declaration, but funny looking, an error is returned.
 func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
 	if funcDecl.Doc == nil {
 		return nil, nil
 	}
-	var parsing, needBlankLine, done bool
-	var codes []string
-	seen := map[string]struct{}{}
-	for _, line := range strings.Split(funcDecl.Doc.Text(), "\n") {
-		line := strings.TrimSpace(line)
-		switch {
-		case needBlankLine && line != "":
-			return nil, fmt.Errorf("need a blank line after the 'Errors:' block indicator")
-		case needBlankLine && line == "":
-			needBlankLine = false
-		case line == "Errors:" && (parsing || done):
-			return nil, fmt.Errorf("repeated 'Errors:' block indicator")
-		case line == "Errors:" && !parsing && !done:
-			parsing = true
-			needBlankLine = true
-		case parsing && strings.HasPrefix(line, "- "):
-			end := strings.Index(line, " --")
-			if end == -1 {
-				return nil, fmt.Errorf("mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name")
-			}
-			if end < 2 {
-				return nil, fmt.Errorf("an error code can't be purely whitespace")
-			}
-			code := line[2:end]
-			code = strings.TrimSpace(code)
-			if code == "" {
-				return nil, fmt.Errorf("an error code can't be purely whitespace")
-			}
-			if _, exists := seen[code]; !exists {
-				seen[code] = struct{}{}
-				codes = append(codes, code)
-			}
-		case parsing && line == "":
-			done = true
-			parsing = false
-		}
-	}
-	return codes, nil
+	return findErrorDocsSM{}.run(funcDecl.Doc.Text())
 }
 
 // findAffectorsInFunc looks up what can affect the given expression
