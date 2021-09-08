@@ -27,6 +27,12 @@ func One() error { // want `function "One" is exported, but does not declare any
 	return one()
 }
 
+// OneWithComment is demo function.
+// Erros are not documented in this function which should be detected by our analyzer.
+func OneWithComment() error { // want `function "OneWithComment" is exported, but does not declare any error codes`
+	return one()
+}
+
 func one() error { // no problem if the function is not exported
 	return nil
 }

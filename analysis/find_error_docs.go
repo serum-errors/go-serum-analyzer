@@ -39,7 +39,7 @@ type findErrorDocsSM struct {
 }
 
 func (sm findErrorDocsSM) run(doc string) ([]string, error) {
-	sm.codes = []string{}
+	sm.codes = nil
 	sm.seen = map[string]struct{}{}
 	sm.state = stateInit{}
 
