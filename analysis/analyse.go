@@ -5,10 +5,12 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 var logf = fmt.Printf
@@ -16,10 +18,21 @@ var logf = fmt.Printf
 // var logf = func(_ string, _ ...interface{}) {}
 
 var VerifyAnalyzer = &analysis.Analyzer{
-	Name:     "reeverify",
-	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
-	Requires: []*analysis.Analyzer{inspect.Analyzer},
-	Run:      runVerify,
+	Name:      "reeverify",
+	Doc:       "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
+	Requires:  []*analysis.Analyzer{inspect.Analyzer},
+	Run:       runVerify,
+	FactTypes: []analysis.Fact{new(ErrorCodes)},
+}
+
+type ErrorCodes struct {
+	codes []string
+}
+
+func (*ErrorCodes) AFact() {}
+
+func (e *ErrorCodes) String() string {
+	return fmt.Sprintf("ErrorCodes: %s", strings.Join(e.codes, ", "))
 }
 
 // FUTURE: may add another analyser that is "ree-exhaustive".
@@ -98,6 +111,17 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		}
 		logf("end of found origins.\n\n")
 
+	}
+
+	// For now we export all error code claims as facts.
+	for fdecl, codes := range funcClaims {
+		fn, ok := pass.TypesInfo.Defs[fdecl.Name].(*types.Func)
+		if !ok {
+			continue
+		}
+
+		fact := ErrorCodes{codes}
+		pass.ExportObjectFact(fn, &fact)
 	}
 
 	return nil, nil
@@ -233,8 +257,14 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
 				calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
 				result = append(result, findAffectorsOfErrorReturnInFunc(pass, calledFunc)...)
-			case *ast.SelectorExpr: // this is what calls to other packages look like.
+			case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
 				logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
+
+				callee := typeutil.Callee(pass.TypesInfo, exprt)
+				var fact ErrorCodes
+				if pass.ImportObjectFact(callee, &fact) {
+					logf("Using fact: %v\n", fact)
+				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
 			result = append(result, x)
