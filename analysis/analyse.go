@@ -83,8 +83,9 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
-		affectOrigins := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
-		logf("trace found these origins of error data...\n")
+		affectOrigins, errorCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
+		logf("trace found these error codes: %v\n", errorCodes)
+		logf("trace found these additional origins of error data...\n")
 		for _, aff := range affectOrigins {
 			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(aff.Pos(), true), aff, checkErrorTypeHasLegibleCode(pass, aff))
 		}
@@ -222,7 +223,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 	return
 }
 
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affs []ast.Expr) {
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes []string) {
 	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -239,7 +240,9 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 			// - This is probably not an exhaustive list...
 
 			lastResult := stmt.Results[len(stmt.Results)-1]
-			affs = append(affs, findAffectors(pass, lastResult, funcDecl)...)
+			newAffectors, newCodes := findAffectors(pass, lastResult, funcDecl)
+			affectors = append(affectors, newAffectors...)
+			codes = append(codes, newCodes...)
 		}
 		return true
 	})
@@ -257,7 +260,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (result []ast.Expr) {
+func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes []string) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -267,20 +270,22 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			callee := typeutil.Callee(pass.TypesInfo, exprt)
 			var fact ErrorCodes
 			if pass.ImportObjectFact(callee, &fact) {
-				logf("Using fact: %v\n", fact)
+				codes = append(codes, fact.Codes...)
 			} else {
 				switch funst := exprt.Fun.(type) {
 				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
 					calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
-					result = append(result, findAffectorsOfErrorReturnInFunc(pass, calledFunc)...)
+					newAffectors, newCodes := findAffectorsOfErrorReturnInFunc(pass, calledFunc)
+					affectors = append(affectors, newAffectors...)
+					codes = append(codes, newCodes...)
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
 					logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
 				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
-			result = append(result, x)
+			affectors = append(affectors, x)
 		default:
-			result = append(result, x)
+			affectors = append(affectors, x)
 		}
 	}
 	return
