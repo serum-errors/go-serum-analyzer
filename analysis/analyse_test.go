@@ -16,4 +16,7 @@ func TestToyAnalyzer(t *testing.T) {
 func TestVerifyAnalyzer(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), analysis.VerifyAnalyzer, "001", "docformat")
 	analysistest.Run(t, analysistest.TestData(), analysis.VerifyAnalyzer, "multipackage/inner1", "multipackage")
+
+	// TODO: All of the examples in the following test currently lead to endless loops in our analyzer.
+	// analysistest.Run(t, analysistest.TestData(), analysis.VerifyAnalyzer, "recursion")
 }
