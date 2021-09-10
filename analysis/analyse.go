@@ -38,38 +38,7 @@ func (e *ErrorCodes) String() string {
 // FUTURE: may add another analyser that is "ree-exhaustive".
 
 func runVerify(pass *analysis.Pass) (interface{}, error) {
-	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	// We only need to see function declarations at first; we'll recurse ourselves within there.
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-	}
-
-	// Let's look only at functions that return errors;
-	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
-	//
-	// Returning more than one error will result in anything but the last one not being analysed.
-	// Returning an error in any result field but the last one will result in it not being analysed.
-	//
-	// We'll actually look for anything that _implements_ `error` (!), not just the literal type.
-	// Sometimes these will also, furthermore, perhaps implement our own extended error interface...
-	// but if so, that's something we'll look into more later, not right now.
-	var funcsToAnalyse []*ast.FuncDecl
-	inspect.Preorder(nodeFilter, func(node ast.Node) {
-		funcDecl := node.(*ast.FuncDecl)
-		resultsList := funcDecl.Type.Results
-		if resultsList == nil {
-			return
-		}
-		lastResult := resultsList.List[len(resultsList.List)-1]
-		typ := pass.TypesInfo.Types[lastResult.Type].Type
-		if !types.Implements(typ, tError) {
-			return
-		}
-		logf("function %q returns an error interface (type name: %q)\n", funcDecl.Name.Name, typ)
-		funcsToAnalyse = append(funcsToAnalyse, funcDecl)
-	})
-	logf("%d functions in this package return errors and will be analysed.\n\n", len(funcsToAnalyse))
+	funcsToAnalyse := findErrorReturningFunctions(pass)
 
 	// First output: warn directly about any functions that are exported
 	// if they return errors, but don't declare error codes in their docs.
@@ -136,8 +105,50 @@ var tReeError = types.NewInterfaceType([]*types.Func{
 	types.NewFunc(token.NoPos, nil, "Code", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
 }, nil).Complete()
 
-func init() {
-	//fmt.Printf("%v\n\n", tError)
+// findErrorReturningFunctions looks for functions that return an error,
+// and emits a diagnostic if a function returns an error, but not as the last argument.
+func findErrorReturningFunctions(pass *analysis.Pass) []*ast.FuncDecl {
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	// We only need to see function declarations at first; we'll recurse ourselves within there.
+	nodeFilter := []ast.Node{
+		(*ast.FuncDecl)(nil),
+	}
+
+	// Let's look only at functions that return errors;
+	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
+	//
+	// Returning more than one error will result in anything but the last one not being analysed.
+	// Returning an error in any result field but the last one will result in it not being analysed.
+	//
+	// We'll actually look for anything that _implements_ `error` (!), not just the literal type.
+	// Sometimes these will also, furthermore, perhaps implement our own extended error interface...
+	// but if so, that's something we'll look into more later, not right now.
+	var funcsToAnalyse []*ast.FuncDecl
+	inspect.Preorder(nodeFilter, func(node ast.Node) {
+		funcDecl := node.(*ast.FuncDecl)
+		resultsList := funcDecl.Type.Results
+		if resultsList == nil {
+			return
+		}
+		lastResult := resultsList.List[len(resultsList.List)-1]
+		typ := pass.TypesInfo.Types[lastResult.Type].Type
+		if !types.Implements(typ, tError) {
+			// Emit diagnostic if an error is returned as non-last argument
+			for _, result := range resultsList.List {
+				typ := pass.TypesInfo.Types[result.Type].Type
+				if types.Implements(typ, tError) {
+					pass.Reportf(result.Pos(), "error should be returned as the last argument")
+				}
+			}
+			return
+		}
+		logf("function %q returns an error interface (type name: %q)\n", funcDecl.Name.Name, typ)
+		funcsToAnalyse = append(funcsToAnalyse, funcDecl)
+	})
+	logf("%d functions in this package return errors and will be analysed.\n\n", len(funcsToAnalyse))
+
+	return funcsToAnalyse
 }
 
 func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
