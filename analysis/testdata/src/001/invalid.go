@@ -9,7 +9,7 @@ func ErrorNotLast() (error, int) { // want "error should be returned as the last
 // Errors:
 //
 //    - hello-error -- is always returned
-func CallToInvalidFunction() error {
+func CallToInvalidFunction() error { // want CallToInvalidFunction:"ErrorCodes: hello-error"
 	e, _ := ErrorNotLast() // want "unsupported: tracking error codes for function call with error as non-last return argument"
 	return e
 }

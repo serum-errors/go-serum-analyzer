@@ -26,13 +26,13 @@ var VerifyAnalyzer = &analysis.Analyzer{
 }
 
 type ErrorCodes struct {
-	codes []string
+	Codes []string
 }
 
 func (*ErrorCodes) AFact() {}
 
 func (e *ErrorCodes) String() string {
-	return fmt.Sprintf("ErrorCodes: %s", strings.Join(e.codes, ", "))
+	return fmt.Sprintf("ErrorCodes: %s", strings.Join(e.Codes, ", "))
 }
 
 // FUTURE: may add another analyser that is "ree-exhaustive".
@@ -63,34 +63,33 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	}
 	logf("%d functions in this package return errors and declared codes for them, and will be further analysed.\n\n", len(funcClaims))
 
+	// Export all claimed error codes as facts.
+	// Missing error code docs or unused ones will get reported in the respective functions,
+	// but on caller site only the documented behaviour matters.
+	for funcDecl, codes := range funcClaims {
+		fn, ok := pass.TypesInfo.Defs[funcDecl.Name].(*types.Func)
+		if !ok {
+			logf("Could not find definition for function %q!", funcDecl.Name.Name)
+			continue
+		}
+
+		fact := ErrorCodes{codes}
+		pass.ExportObjectFact(fn, &fact)
+	}
+
 	// Okay -- let's look at the functions that have made claims about their error codes.
 	// We'll explore deeply to find everything that can actually affect their error return value.
 	// When we reach data initialization... we look at if those types implement coded errors, and try to figure out what their actual code value is.
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
-	for _, funcDecl := range funcsToAnalyse {
-		claimedCodes := funcClaims[funcDecl]
-		if claimedCodes == nil {
-			continue
-		}
+	for funcDecl, claimedCodes := range funcClaims {
 		affectOrigins := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
 		logf("trace found these origins of error data...\n")
 		for _, aff := range affectOrigins {
 			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(aff.Pos(), true), aff, checkErrorTypeHasLegibleCode(pass, aff))
 		}
 		logf("end of found origins.\n\n")
-
-	}
-
-	// For now we export all error code claims as facts.
-	for fdecl, codes := range funcClaims {
-		fn, ok := pass.TypesInfo.Defs[fdecl.Name].(*types.Func)
-		if !ok {
-			continue
-		}
-
-		fact := ErrorCodes{codes}
-		pass.ExportObjectFact(fn, &fact)
+		_ = claimedCodes // not used yet
 	}
 
 	return nil, nil
@@ -258,24 +257,24 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-//
 func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (result []ast.Expr) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
-		case *ast.CallExpr: // Alright, let's goooooo
-			logf("fun expr time: %#v ... %#v\n", exprt.Fun, pass.TypesInfo.Types[exprt.Fun])
-			switch funst := exprt.Fun.(type) {
-			case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
-				calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
-				result = append(result, findAffectorsOfErrorReturnInFunc(pass, calledFunc)...)
-			case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
-				logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
-
-				callee := typeutil.Callee(pass.TypesInfo, exprt)
-				var fact ErrorCodes
-				if pass.ImportObjectFact(callee, &fact) {
-					logf("Using fact: %v\n", fact)
+		case *ast.CallExpr:
+			// For a CallExpr we first look if the error codes are already computed and stored as a fact.
+			// If so we use those, otherwise we try to recurse and compute error codes for that function.
+			callee := typeutil.Callee(pass.TypesInfo, exprt)
+			var fact ErrorCodes
+			if pass.ImportObjectFact(callee, &fact) {
+				logf("Using fact: %v\n", fact)
+			} else {
+				switch funst := exprt.Fun.(type) {
+				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
+					calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
+					result = append(result, findAffectorsOfErrorReturnInFunc(pass, calledFunc)...)
+				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
+					logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
 				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
