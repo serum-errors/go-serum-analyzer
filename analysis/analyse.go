@@ -188,7 +188,8 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 								// Destructuring mode.
 								// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
 								if i != len(stmt2.Lhs)-1 {
-									panic("unsupported: tracking through a call that's a destructuring assignment and has the error as non-last return")
+									pass.Reportf(clauset.Pos(), "unsupported: tracking error codes for function call with error as non-last return argument")
+									return false
 								}
 								// Because it's a CallExpr, we're done here: this is part of the result.
 								switch stmt2.Rhs[0].(type) {
