@@ -33,13 +33,11 @@ type state interface {
 // If there are no error declarations, (nil, nil) is returned.
 // If there's what looks like an error declaration, but funny looking, an error is returned.
 type findErrorDocsSM struct {
-	codes []string
 	seen  map[string]struct{}
 	state state
 }
 
-func (sm findErrorDocsSM) run(doc string) ([]string, error) {
-	sm.codes = nil
+func (sm findErrorDocsSM) run(doc string) (codeSet, error) {
 	sm.seen = map[string]struct{}{}
 	sm.state = stateInit{}
 
@@ -50,7 +48,7 @@ func (sm findErrorDocsSM) run(doc string) ([]string, error) {
 			return nil, err
 		}
 	}
-	return sm.codes, nil
+	return sm.seen, nil
 }
 
 type (
@@ -97,7 +95,6 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 		}
 		if _, exists := sm.seen[code]; !exists {
 			sm.seen[code] = struct{}{}
-			sm.codes = append(sm.codes, code)
 		}
 	}
 	return nil

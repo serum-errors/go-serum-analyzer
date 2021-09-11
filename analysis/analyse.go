@@ -46,14 +46,14 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Also: because we have to do the whole parse for docstrings already,
 	// remember the error codes for the funcs that do have them:
 	// those are what we'll look at for the remaining analysis.
-	funcClaims := map[*ast.FuncDecl][]string{}
+	funcClaims := map[*ast.FuncDecl]codeSet{}
 	for _, funcDecl := range funcsToAnalyse {
 		codes, err := findErrorDocs(funcDecl)
 		if err != nil {
 			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
 			continue
 		}
-		if codes == nil {
+		if len(codes) == 0 {
 			if funcDecl.Name.IsExported() {
 				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
 			}
@@ -67,14 +67,14 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Export all claimed error codes as facts.
 	// Missing error code docs or unused ones will get reported in the respective functions,
 	// but on caller site only the documented behaviour matters.
-	for funcDecl, codes := range funcClaims {
+	for funcDecl, codeSet := range funcClaims {
 		fn, ok := pass.TypesInfo.Defs[funcDecl.Name].(*types.Func)
 		if !ok {
 			logf("Could not find definition for function %q!", funcDecl.Name.Name)
 			continue
 		}
 
-		fact := ErrorCodes{codes}
+		fact := ErrorCodes{codeSet.slice()}
 		pass.ExportObjectFact(fn, &fact)
 	}
 
@@ -85,19 +85,18 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
 		affectOrigins, errorCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
-		logf("trace found these error codes: %v\n", errorCodes)
 		logf("trace found these additional origins of error data...\n")
 		for _, affector := range affectOrigins {
 			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(affector.Pos(), true), affector, checkErrorTypeHasLegibleCode(pass, affector))
 		}
 		logf("end of found origins.\n")
-		// TODO: Remove error code duplicates
-		var affectorCodes []string
+		var affectorCodes codeSet
 		for _, affector := range affectOrigins {
 			codes := extractErrorCodes(pass, affector, funcDecl)
-			affectorCodes = append(affectorCodes, codes...)
+			affectorCodes = union(affectorCodes, codes)
 		}
-		logf("found these additional error codes: %v\n", affectorCodes)
+		errorCodes = union(errorCodes, affectorCodes)
+		logf("trace found error codes: %v\n", errorCodes)
 		logf("\n")
 		_ = claimedCodes // not used yet
 	}
@@ -160,7 +159,7 @@ func findErrorReturningFunctions(pass *analysis.Pass) []*ast.FuncDecl {
 	return funcsToAnalyse
 }
 
-func findErrorDocs(funcDecl *ast.FuncDecl) ([]string, error) {
+func findErrorDocs(funcDecl *ast.FuncDecl) (codeSet, error) {
 	if funcDecl.Doc == nil {
 		return nil, nil
 	}
@@ -232,7 +231,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 	return
 }
 
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes []string) {
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -251,7 +250,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 			lastResult := stmt.Results[len(stmt.Results)-1]
 			newAffectors, newCodes := findAffectors(pass, lastResult, funcDecl)
 			affectors = append(affectors, newAffectors...)
-			codes = append(codes, newCodes...)
+			codes = union(codes, newCodes)
 		}
 		return true
 	})
@@ -269,7 +268,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes []string) {
+func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -279,14 +278,14 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			callee := typeutil.Callee(pass.TypesInfo, exprt)
 			var fact ErrorCodes
 			if pass.ImportObjectFact(callee, &fact) {
-				codes = append(codes, fact.Codes...)
+				codes = union(codes, sliceToSet(fact.Codes))
 			} else {
 				switch funst := exprt.Fun.(type) {
 				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
 					calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
 					newAffectors, newCodes := findAffectorsOfErrorReturnInFunc(pass, calledFunc)
 					affectors = append(affectors, newAffectors...)
-					codes = append(codes, newCodes...)
+					codes = union(codes, newCodes)
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
 					logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
 				}
@@ -317,21 +316,21 @@ func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // 
 //         Identifier needed for tracking direct assignments to the field
 //     Inspect the function where this error is created and find all possible error codes
 //     (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
-func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDecl) []string {
-	var result []string
+func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDecl) codeSet {
+	result := codeSet{}
 	switch expr := expr.(type) {
 	case *ast.CompositeLit:
 		// TODO: Implement (This is only a dummy implementation so far!)
 		if len(expr.Elts) == 1 {
 			if info, ok := pass.TypesInfo.Types[expr.Elts[0]]; ok && info.Value != nil {
 				if info.Value.Kind() == constant.String {
-					result = append(result, info.Value.String())
+					result.add(info.Value.String())
 				}
 			}
 		}
 	case *ast.UnaryExpr:
 		if expr.Op == token.AND {
-			result = append(result, extractErrorCodes(pass, expr.X, funcDecl)...)
+			result = union(result, extractErrorCodes(pass, expr.X, funcDecl))
 		}
 	default:
 		logf("extractErrorCodes did not yet handle: %#v\n", expr)
