@@ -16,7 +16,7 @@ func main() {
 
 		- hello-error -- always returned.
 */
-func One() error {
+func One() error { // want One:"ErrorCodes: hello-error"
 	return Two()
 }
 
@@ -26,11 +26,11 @@ func One() error {
 // Errors:
 //
 //    - hello-error -- is always returned.
-func Two() error {
+func Two() error { // want Two:"ErrorCodes: hello-error"
 	return &Error{"hello-error"}
 }
 
-func Three() *Error {
+func Three() *Error { // want `function "Three" is exported, but does not declare any error codes`
 	return &Error{"hello-error-literal"}
 }
 
@@ -39,7 +39,7 @@ func Three() *Error {
 // Errors:
 //
 //    - zonk-error -- is always returned.
-func Four() (string, error) {
+func Four() (string, error) { // want Four:"ErrorCodes: zonk-error"
 	return "something", &Error{"zonk-error"}
 }
 
@@ -50,7 +50,7 @@ func Four() (string, error) {
 // Errors:
 //
 //    - zonk-error -- is always returned.
-func Five() (interface{}, error) {
+func Five() (interface{}, error) { // want Five:"ErrorCodes: zonk-error"
 	return Four()
 }
 
@@ -62,7 +62,7 @@ func Five() (interface{}, error) {
 //
 //    - hello-error -- is sometimes returned.
 //    - zonk-error -- is returned at other times.
-func Six(flip bool) error {
+func Six(flip bool) error { // want Six:"ErrorCodes: hello-error, zonk-error"
 	err := Two()
 	if flip {
 		_, err = Four()

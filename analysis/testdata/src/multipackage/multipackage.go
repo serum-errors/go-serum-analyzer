@@ -45,9 +45,20 @@ func Trap2() error { // want Trap2:"ErrorCodes: hello-error"
 type TrapType struct{}
 
 func (TrapType) returnError() error {
-	return nil
+	return &Error{"hello-error"}
 }
 
 func returnTrap() TrapType {
 	return TrapType{}
 }
+
+type Error struct {
+	TheCode string
+}
+
+func (e *Error) Code() string               { return e.TheCode }
+func (e *Error) Message() string            { return e.TheCode }
+func (e *Error) Details() map[string]string { return nil }
+func (e *Error) Error() string              { return e.Message() }
+
+// func (e *Error) Cause() error               { return nil }

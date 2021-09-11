@@ -50,3 +50,13 @@ func union(set, other codeSet) codeSet {
 
 	return set
 }
+
+func difference(set, subtrahend codeSet) codeSet {
+	diff := make(codeSet)
+	for value := range set {
+		if _, ok := subtrahend[value]; !ok {
+			diff[value] = struct{}{}
+		}
+	}
+	return diff
+}

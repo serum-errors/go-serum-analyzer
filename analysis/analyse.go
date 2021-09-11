@@ -6,6 +6,8 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"sort"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -33,6 +35,7 @@ type ErrorCodes struct {
 func (*ErrorCodes) AFact() {}
 
 func (e *ErrorCodes) String() string {
+	sort.Strings(e.Codes)
 	return fmt.Sprintf("ErrorCodes: %s", strings.Join(e.Codes, ", "))
 }
 
@@ -84,7 +87,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
-		affectOrigins, errorCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
+		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
 		logf("trace found these additional origins of error data...\n")
 		for _, affector := range affectOrigins {
 			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(affector.Pos(), true), affector, checkErrorTypeHasLegibleCode(pass, affector))
@@ -95,10 +98,26 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			codes := extractErrorCodes(pass, affector, funcDecl)
 			affectorCodes = union(affectorCodes, codes)
 		}
-		errorCodes = union(errorCodes, affectorCodes)
-		logf("trace found error codes: %v\n", errorCodes)
+		foundCodes = union(foundCodes, affectorCodes)
+		logf("trace found error codes: %v\n", foundCodes)
+
+		missingCodes := difference(foundCodes, claimedCodes).slice()
+		unusedCodes := difference(claimedCodes, foundCodes).slice()
+		var errorMessages []string
+		if len(missingCodes) != 0 {
+			sort.Strings(missingCodes)
+			errorMessages = append(errorMessages, fmt.Sprintf("missing codes: %v", missingCodes))
+		}
+		if len(unusedCodes) != 0 {
+			sort.Strings(unusedCodes)
+			errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
+		}
 		logf("\n")
-		_ = claimedCodes // not used yet
+
+		if len(missingCodes) != 0 || len(unusedCodes) != 0 {
+			errorMessage := strings.Join(errorMessages, " ")
+			pass.Reportf(funcDecl.Pos(), "function %q has a mismatch of declared and actual error codes: %s", funcDecl.Name.Name, errorMessage)
+		}
 	}
 
 	return nil, nil
@@ -324,7 +343,11 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 		if len(expr.Elts) == 1 {
 			if info, ok := pass.TypesInfo.Types[expr.Elts[0]]; ok && info.Value != nil {
 				if info.Value.Kind() == constant.String {
-					result.add(info.Value.String())
+					value := info.Value.String()
+					value, err := strconv.Unquote(value)
+					if err == nil {
+						result.add(value)
+					}
 				}
 			}
 		}
