@@ -3,6 +3,7 @@ package analysis
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"strings"
@@ -86,10 +87,18 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		affectOrigins, errorCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
 		logf("trace found these error codes: %v\n", errorCodes)
 		logf("trace found these additional origins of error data...\n")
-		for _, aff := range affectOrigins {
-			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(aff.Pos(), true), aff, checkErrorTypeHasLegibleCode(pass, aff))
+		for _, affector := range affectOrigins {
+			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(affector.Pos(), true), affector, checkErrorTypeHasLegibleCode(pass, affector))
 		}
-		logf("end of found origins.\n\n")
+		logf("end of found origins.\n")
+		// TODO: Remove error code duplicates
+		var affectorCodes []string
+		for _, affector := range affectOrigins {
+			codes := extractErrorCodes(pass, affector, funcDecl)
+			affectorCodes = append(affectorCodes, codes...)
+		}
+		logf("found these additional error codes: %v\n", affectorCodes)
+		logf("\n")
 		_ = claimedCodes // not used yet
 	}
 
@@ -297,4 +306,35 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
 	typ := pass.TypesInfo.Types[seen].Type
 	return types.Implements(typ, tReeError)
+}
+
+// extractErrorCodes inspects the error type.
+//
+// If the Code() method returns a constant value: That is the error code we're looking for
+// If the Code() method returns a single struct field:
+//     Store the field position and identifier
+//         Position needed for tracking creation with a constructor
+//         Identifier needed for tracking direct assignments to the field
+//     Inspect the function where this error is created and find all possible error codes
+//     (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
+func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDecl) []string {
+	var result []string
+	switch expr := expr.(type) {
+	case *ast.CompositeLit:
+		// TODO: Implement (This is only a dummy implementation so far!)
+		if len(expr.Elts) == 1 {
+			if info, ok := pass.TypesInfo.Types[expr.Elts[0]]; ok && info.Value != nil {
+				if info.Value.Kind() == constant.String {
+					result = append(result, info.Value.String())
+				}
+			}
+		}
+	case *ast.UnaryExpr:
+		if expr.Op == token.AND {
+			result = append(result, extractErrorCodes(pass, expr.X, funcDecl)...)
+		}
+	default:
+		logf("extractErrorCodes did not yet handle: %#v\n", expr)
+	}
+	return result
 }
