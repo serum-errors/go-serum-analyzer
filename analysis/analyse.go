@@ -39,6 +39,31 @@ func (e *ErrorCodes) String() string {
 	return fmt.Sprintf("ErrorCodes: %v", strings.Join(e.Codes, " "))
 }
 
+// isErrorCodeValid checks if the given error code is valid.
+// Valid error codes have to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$".
+func isErrorCodeValid(code string) bool {
+	if len(code) == 0 {
+		return false
+	}
+
+	// Verify that first and last char do not contain invalid values.
+	if code[0] == '-' || (code[0] >= '0' && code[0] <= '9') {
+		return false
+	}
+	if code[len(code)-1] == '-' {
+		return false
+	}
+
+	// Verify that the remaining chars match [a-zA-Z0-9\-]
+	for _, c := range code {
+		if !(c == '-' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '0')) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // FUTURE: may add another analyser that is "ree-exhaustive".
 
 func runVerify(pass *analysis.Pass) (interface{}, error) {

@@ -105,6 +105,51 @@ func Seven() error { // want `function "Seven" has odd docstring: an error code 
 	return &Error{"hello-error"}
 }
 
+// InvalidCodeFormat1 declares an error with invalid format.
+//
+// Errors:
+//
+// - invalid- -- ending with a dash
+func InvalidCodeFormat1() error { // want `function "InvalidCodeFormat1" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
+// InvalidCodeFormat2 declares an error with invalid format.
+//
+// Errors:
+//
+// - -invalid -- starting with a dash
+func InvalidCodeFormat2() error { // want `function "InvalidCodeFormat2" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
+// InvalidCodeFormat3 declares an error with invalid format.
+//
+// Errors:
+//
+// - 0invalid-error -- starting with a number
+func InvalidCodeFormat3() error { // want `function "InvalidCodeFormat3" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
+// InvalidCodeFormat4 declares an error with invalid format.
+//
+// Errors:
+//
+// - invalid(error)-code -- containing invalid chars (braces)
+func InvalidCodeFormat4() error { // want `function "InvalidCodeFormat4" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
+// InvalidCodeFormat5 declares an error with invalid format.
+//
+// Errors:
+//
+// - invalid error -- containing invalid char (space)
+func InvalidCodeFormat5() error { // want `function "InvalidCodeFormat5" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
 type Error struct {
 	TheCode string
 }

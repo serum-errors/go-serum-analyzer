@@ -24,6 +24,7 @@ type state interface {
 //     - for simplier parsing, any line that starts with "- " will be slurped,
 //       and we'll consider it an error if the rest of the pattern doesn't follow.
 //     - the capture group can be stripped for whitespace again.  (perhaps the author wanted to align things.)
+//     - the error code has to be valid, which means it has to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$"
 //   - this may repeat.  if lines do not start that that pattern, they are skipped.
 //      - note that the same code may appear multiple times.  this is acceptable, and should be deduplicated.
 //   - when there's another fully blank line, the parse is ended.
@@ -33,12 +34,12 @@ type state interface {
 // If there are no error declarations, (nil, nil) is returned.
 // If there's what looks like an error declaration, but funny looking, an error is returned.
 type findErrorDocsSM struct {
-	seen  map[string]struct{}
+	seen  codeSet
 	state state
 }
 
 func (sm findErrorDocsSM) run(doc string) (codeSet, error) {
-	sm.seen = map[string]struct{}{}
+	sm.seen = codeSet{}
 	sm.state = stateInit{}
 
 	for _, line := range strings.Split(doc, "\n") {
@@ -85,6 +86,7 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 		if end == -1 {
 			return fmt.Errorf("mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name")
 		}
+
 		if end < 2 {
 			return fmt.Errorf("an error code can't be purely whitespace")
 		}
@@ -93,6 +95,11 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 		if code == "" {
 			return fmt.Errorf("an error code can't be purely whitespace")
 		}
+
+		if !isErrorCodeValid(code) {
+			return fmt.Errorf("declared error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+		}
+
 		if _, exists := sm.seen[code]; !exists {
 			sm.seen[code] = struct{}{}
 		}
