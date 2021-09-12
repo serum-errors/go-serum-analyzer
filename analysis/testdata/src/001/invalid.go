@@ -16,3 +16,19 @@ func CallToInvalidFunction() error { // want CallToInvalidFunction:"ErrorCodes: 
 	}
 	return &Error{"zonk-error"}
 }
+
+// ReturnInvalidError returns an error that does not define a Code() method.
+//
+// Errors:
+//
+//    - hello-error -- might be returned by this function
+func ReturnInvalidError() error { // want ReturnInvalidError:"ErrorCodes: hello-error"
+	if false {
+		return &Error{"hello-error"}
+	}
+	return &InvalidError{} // want "expression does not define an error code"
+}
+
+type InvalidError struct{}
+
+func (e *InvalidError) Error() string { return "InvalidError" }

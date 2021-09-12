@@ -95,8 +95,12 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		logf("end of found origins.\n")
 		var affectorCodes codeSet
 		for _, affector := range affectOrigins {
-			codes := extractErrorCodes(pass, affector, funcDecl)
-			affectorCodes = union(affectorCodes, codes)
+			if checkErrorTypeHasLegibleCode(pass, affector) {
+				codes := extractErrorCodes(pass, affector, funcDecl)
+				affectorCodes = union(affectorCodes, codes)
+			} else {
+				pass.ReportRangef(affector, "expression does not define an error code")
+			}
 		}
 		foundCodes = union(foundCodes, affectorCodes)
 		logf("trace found error codes: %v\n", foundCodes)
