@@ -49,7 +49,7 @@ func MissingAndUnusedCode() error { /*
 //    - unused-error-aa -- never returned
 func MultipleMismatchedCodes() error { /*
 		want
-			MultipleMismatchedCodes:"ErrorCodes: hello-error, unused-error-aa, unused-error-ab"
+			MultipleMismatchedCodes:"ErrorCodes: hello-error unused-error-aa unused-error-ab"
 			`function "MultipleMismatchedCodes" has a mismatch of declared and actual error codes: missing codes: \[missing-error-a missing-error-ab missing-error-cc] unused codes: \[unused-error-aa unused-error-ab]` */
 	switch {
 	case true:

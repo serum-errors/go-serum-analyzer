@@ -36,7 +36,7 @@ func (*ErrorCodes) AFact() {}
 
 func (e *ErrorCodes) String() string {
 	sort.Strings(e.Codes)
-	return fmt.Sprintf("ErrorCodes: %s", strings.Join(e.Codes, ", "))
+	return fmt.Sprintf("ErrorCodes: %v", strings.Join(e.Codes, " "))
 }
 
 // FUTURE: may add another analyser that is "ree-exhaustive".

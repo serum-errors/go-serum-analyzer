@@ -62,7 +62,7 @@ func Five() (interface{}, error) { // want Five:"ErrorCodes: zonk-error"
 //
 //    - hello-error -- is sometimes returned.
 //    - zonk-error -- is returned at other times.
-func Six(flip bool) error { // want Six:"ErrorCodes: hello-error, zonk-error"
+func Six(flip bool) error { // want Six:"ErrorCodes: hello-error zonk-error"
 	err := Two()
 	if flip {
 		_, err = Four()

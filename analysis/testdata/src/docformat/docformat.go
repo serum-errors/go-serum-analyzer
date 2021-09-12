@@ -12,7 +12,7 @@ package docformat
 //
 // After a blank line comments in any format may follow.
 // Additional blocks starting with 'Errors:' are disallowed.
-func Correct() error { // want Correct:"ErrorCodes: hello-error, hello-unreachable"
+func Correct() error { // want Correct:"ErrorCodes: hello-error hello-unreachable"
 	if false {
 		return &Error{"hello-unreachable"}
 	}
