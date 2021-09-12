@@ -8,7 +8,12 @@ import (
 type codeSet map[string]struct{}
 
 func (set codeSet) String() string {
-	return fmt.Sprintf("set[%s]", strings.Join(set.slice(), ", "))
+	return fmt.Sprintf("set[%s]", strings.Join(set.slice(), " "))
+}
+
+// set creates a set using the provided values.
+func set(values ...string) codeSet {
+	return sliceToSet(values)
 }
 
 // sliceToSet creates a set containing all values of the given slice, removing duplicates.
