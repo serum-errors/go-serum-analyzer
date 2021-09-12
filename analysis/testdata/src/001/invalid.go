@@ -32,3 +32,29 @@ func ReturnInvalidError() error { // want ReturnInvalidError:"ErrorCodes: hello-
 type InvalidError struct{}
 
 func (e *InvalidError) Error() string { return "InvalidError" }
+
+// InvalidErrorCodeFormat returns an error with invalid error code.
+//
+// Errors:
+//
+//    - hello-error -- might be returned
+func InvalidErrorCodeFormat() error { // want InvalidErrorCodeFormat:"ErrorCodes: hello-error"
+	return invalidErrorCodeFormat()
+}
+
+func invalidErrorCodeFormat() error {
+	switch {
+	case true:
+		return &Error{"5-invalid-error"} // want "error code from expression has invalid format: should match .*"
+	case true:
+		return &Error{"-invalid-error"} // want "error code from expression has invalid format: should match .*"
+	case true:
+		return &Error{"invalid-error-"} // want "error code from expression has invalid format: should match .*"
+	case true:
+		return &Error{"invalid-(chars)-error"} // want "error code from expression has invalid format: should match .*"
+	case true:
+		return &Error{"invalid error"} // want "error code from expression has invalid format: should match .*"
+	default:
+		return &Error{"hello-error"} // valid
+	}
+}

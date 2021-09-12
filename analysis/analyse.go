@@ -374,8 +374,10 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 				if info.Value.Kind() == constant.String {
 					value := info.Value.String()
 					value, err := strconv.Unquote(value)
-					if err == nil {
+					if err == nil && isErrorCodeValid(value) {
 						result.add(value)
+					} else {
+						pass.ReportRangef(expr, "error code from expression has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 					}
 				}
 			}
