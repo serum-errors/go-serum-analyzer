@@ -114,7 +114,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		}
 		logf("\n")
 
-		if len(missingCodes) != 0 || len(unusedCodes) != 0 {
+		if len(errorMessages) != 0 {
 			errorMessage := strings.Join(errorMessages, " ")
 			pass.Reportf(funcDecl.Pos(), "function %q has a mismatch of declared and actual error codes: %s", funcDecl.Name.Name, errorMessage)
 		}
