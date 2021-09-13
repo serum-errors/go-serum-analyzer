@@ -121,6 +121,10 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		var affectorCodes codeSet
 		for _, affector := range affectOrigins {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
+				// TMP:
+				logf("Analysing error: %#v\n", pass.TypesInfo.Types[affector].Type)
+				analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
+
 				codes := extractErrorCodes(pass, affector, funcDecl)
 				affectorCodes = union(affectorCodes, codes)
 			} else {
@@ -390,4 +394,109 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 		logf("extractErrorCodes did not yet handle: %#v\n", expr)
 	}
 	return result
+}
+
+// TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
+func analyseErrorType(pass *analysis.Pass, errorType types.Type) ([]string, []string) {
+	funcDecl, receiver := getCodeFuncFromErrorType(pass, errorType)
+	if funcDecl == nil {
+		return nil, nil
+	}
+
+	// Looking through return statements of the "Code() string" method
+	// in order to find error code constants or
+	// the return of a single field.
+	// For all other return statements we mark it as invalid by emitting a diagnostic.
+	var constants []string
+	ast.Inspect(funcDecl, func(node ast.Node) bool {
+		switch node := node.(type) {
+		case *ast.FuncLit:
+			return false // Were not interested in return statements of nested function literals
+		case *ast.ReturnStmt:
+			if node.Results == nil || len(node.Results) != 1 {
+				panic("Should be unreachable: We already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
+			}
+
+			// If the return statement returns a constant string value:
+			// Check if it is a valid error code and if so add it to the error code constants.
+			returnType := pass.TypesInfo.Types[node.Results[0]]
+			if value, ok := stringFromConstant(returnType.Value); ok {
+				if isErrorCodeValid(value) {
+					constants = append(constants, value)
+				} else {
+					pass.ReportRangef(node, "error code from expression has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+				}
+				return false
+			}
+
+			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
+			expression, ok := node.Results[0].(*ast.SelectorExpr)
+			if ok {
+				if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
+					logf("Found single field: %q\n", expression.Sel.Name)
+					return false
+				}
+			}
+
+			pass.ReportRangef(node, "function %q should always return a string constant or a single field", funcDecl.Name.Name)
+		}
+		return true
+	})
+
+	return constants, nil
+}
+
+// getCodeFuncFromErrorType finds and returns the method declaration of "Code() string" for the given error type.
+// The second result is the identifier which is the receiver of the method.
+func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	nodeFilter := []ast.Node{
+		(*ast.FuncDecl)(nil),
+	}
+
+	// Search through all function declarations,
+	// to find the "Code() string" method of the given error type.
+	// Every branch exits with "return false" because we don't want too look into the function body here.
+	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
+		funcDecl := node.(*ast.FuncDecl)
+		if funcDecl.Recv == nil || funcDecl.Recv.List == nil ||
+			len(funcDecl.Recv.List) != 1 || funcDecl.Name.Name != "Code" {
+			return false
+		}
+
+		receiverField := funcDecl.Recv.List[0]
+		if !errorTypesEqual(pass.TypesInfo.Types[receiverField.Type].Type, errorType) ||
+			len(receiverField.Names) != 1 {
+			return false
+		}
+
+		result = funcDecl
+		receiver = receiverField.Names[0]
+		return false
+	})
+
+	return
+}
+
+func errorTypesEqual(type1, type2 types.Type) bool {
+	if type1 == type2 {
+		return true
+	}
+
+	pointer1, ok1 := type1.(*types.Pointer)
+	pointer2, ok2 := type2.(*types.Pointer)
+	return ok1 && ok2 && pointer1.Elem() == pointer2.Elem()
+}
+
+// stringFromConstant tries to get concrete string value of the given constant value.
+func stringFromConstant(value constant.Value) (string, bool) {
+	if value != nil && value.Kind() == constant.String {
+		value := value.String()
+		value, err := strconv.Unquote(value)
+		if err == nil {
+			return value, true
+		}
+	}
+	return "", false
 }
