@@ -468,7 +468,7 @@ func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result
 		}
 
 		receiverField := funcDecl.Recv.List[0]
-		if !errorTypesEqual(pass.TypesInfo.Types[receiverField.Type].Type, errorType) ||
+		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, errorType) ||
 			len(receiverField.Names) != 1 {
 			return false
 		}
@@ -481,14 +481,16 @@ func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result
 	return
 }
 
-func errorTypesEqual(type1, type2 types.Type) bool {
+// errorTypesSubset checks if type1 is a subset of type2.
+func errorTypesSubset(type1, type2 types.Type) bool {
 	if type1 == type2 {
 		return true
 	}
 
 	pointer1, ok1 := type1.(*types.Pointer)
 	pointer2, ok2 := type2.(*types.Pointer)
-	return ok1 && ok2 && pointer1.Elem() == pointer2.Elem()
+	return (ok1 && ok2 && pointer1.Elem() == pointer2.Elem()) ||
+		(!ok1 && ok2 && type1 == pointer2.Elem())
 }
 
 // stringFromConstant tries to get concrete string value of the given constant value.
