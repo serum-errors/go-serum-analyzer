@@ -123,7 +123,8 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
 				// TMP:
 				logf("Analysing error: %#v\n", pass.TypesInfo.Types[affector].Type)
-				analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
+				constantCodes, _ := analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
+				affectorCodes = union(affectorCodes, constantCodes)
 
 				codes := extractErrorCodes(pass, affector, funcDecl)
 				affectorCodes = union(affectorCodes, codes)
@@ -397,7 +398,8 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 }
 
 // TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
-func analyseErrorType(pass *analysis.Pass, errorType types.Type) ([]string, []string) {
+//       Possible solution: Export the information as a fact. That should also allow the usage of errors of other packages.
+func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []string) {
 	funcDecl, receiver := getCodeFuncFromErrorType(pass, errorType)
 	if funcDecl == nil {
 		return nil, nil
@@ -407,7 +409,7 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) ([]string, []st
 	// in order to find error code constants or
 	// the return of a single field.
 	// For all other return statements we mark it as invalid by emitting a diagnostic.
-	var constants []string
+	constants := set()
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
@@ -422,7 +424,7 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) ([]string, []st
 			returnType := pass.TypesInfo.Types[node.Results[0]]
 			if value, ok := stringFromConstant(returnType.Value); ok {
 				if isErrorCodeValid(value) {
-					constants = append(constants, value)
+					constants.add(value)
 				} else {
 					pass.ReportRangef(node, "error code from expression has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 				}
