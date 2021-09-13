@@ -34,6 +34,7 @@ func TestIsErrorCodeValid(t *testing.T) {
 		{"-", false},
 		{"invalid$error", false},
 		{"invalid error", false},
+		{"some-2-error", true},
 	}
 
 	for _, test := range tests {

@@ -56,7 +56,7 @@ func isErrorCodeValid(code string) bool {
 
 	// Verify that the remaining chars match [a-zA-Z0-9\-]
 	for _, c := range code {
-		if !(c == '-' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '0')) {
+		if !(c == '-' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
 			return false
 		}
 	}
