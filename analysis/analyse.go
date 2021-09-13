@@ -432,10 +432,17 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []str
 			}
 
 			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
+			// TODO: Handle promoted fields of error types
 			expression, ok := node.Results[0].(*ast.SelectorExpr)
 			if ok {
 				if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
 					logf("Found single field: %q\n", expression.Sel.Name)
+					position := getFieldPositionUsingMethodReceiver(receiver, expression.Sel.Name)
+					if position >= 0 {
+						logf("Field %q is at position: %d\n", expression.Sel.Name, position)
+					} else {
+						panic(fmt.Sprintf("Position for %s.%s could not be found", ident.Name, expression.Sel.Name))
+					}
 					return false
 				}
 			}
@@ -446,6 +453,50 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []str
 	})
 
 	return constants, nil
+}
+
+// getFieldPositionUsingMethodReceiver get the position of the given field in the error struct.
+// The receiver is used to dig up the error type definition.
+// TODO: Clean up the panics and implement proper error handling.
+func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) int {
+	receiverType := receiver.Obj.Decl.(*ast.Field).Type
+	starExpr, ok := receiverType.(*ast.StarExpr)
+	if !ok {
+		// TODO: Figure out how this is done if it is not a StarExpr
+		panic("not a *ast.StarExpr")
+	}
+
+	errorTypeIdent, ok := starExpr.X.(*ast.Ident)
+	if !ok || errorTypeIdent.Obj == nil || errorTypeIdent.Obj.Kind != ast.Typ {
+		panic("can this happen?")
+	}
+
+	errorTypeSpec, ok := errorTypeIdent.Obj.Decl.(*ast.TypeSpec)
+	if !ok {
+		panic("can this happen?")
+	}
+
+	errorType, ok := errorTypeSpec.Type.(*ast.StructType)
+	if !ok || errorType.Fields.List == nil {
+		return -1
+	}
+
+	i := 0
+	for _, field := range errorType.Fields.List {
+		if field.Names == nil {
+			// TODO: Handle field without name (e.g. type Error struct { *T })
+			panic("not implemented")
+		}
+
+		for _, name := range field.Names {
+			if name.Name == fieldName {
+				return i
+			}
+			i++
+		}
+	}
+
+	return -1
 }
 
 // getCodeFuncFromErrorType finds and returns the method declaration of "Code() string" for the given error type.
