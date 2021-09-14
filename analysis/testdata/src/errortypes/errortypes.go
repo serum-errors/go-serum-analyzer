@@ -30,6 +30,10 @@ func AllErrors() error { // want AllErrors:"ErrorCodes: multiple-1-error multipl
 		return &InvalidError{}
 	case true:
 		return &InvalidError2{}
+	case true:
+		return &FieldError{}
+	case true:
+		return &FieldError2{}
 	}
 	return nil
 }
@@ -84,3 +88,22 @@ type InvalidError2 struct{ field1, field2 string }
 
 func (e *InvalidError2) Code() string  { return e.field1 + e.field2 } // want `function "Code" should always return a string constant or a single field`
 func (e *InvalidError2) Error() string { return "InvalidError2" }
+
+type FieldError struct{ field string }
+
+func (e *FieldError) Code() string  { return e.field }
+func (e *FieldError) Error() string { return "FieldError" }
+
+type FieldError2 struct{ field1, field2, field3 string }
+
+func (e *FieldError2) Code() string {
+	switch {
+	case true:
+		return e.field1
+	case true:
+		return e.field2 // want `only single field allowed: cannot return field "field2" because field .* was returned previously`
+	default:
+		return e.field3 // want `only single field allowed: cannot return field "field3" because field .* was returned previously`
+	}
+}
+func (e *FieldError2) Error() string { return "FieldError2" }

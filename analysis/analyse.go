@@ -21,11 +21,14 @@ var logf = fmt.Printf
 // var logf = func(_ string, _ ...interface{}) {}
 
 var VerifyAnalyzer = &analysis.Analyzer{
-	Name:      "reeverify",
-	Doc:       "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
-	Requires:  []*analysis.Analyzer{inspect.Analyzer},
-	Run:       runVerify,
-	FactTypes: []analysis.Fact{new(ErrorCodes)},
+	Name:     "reeverify",
+	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
+	Requires: []*analysis.Analyzer{inspect.Analyzer},
+	Run:      runVerify,
+	FactTypes: []analysis.Fact{
+		new(ErrorCodes),
+		new(ErrorType),
+	},
 }
 
 type ErrorCodes struct {
@@ -37,6 +40,32 @@ func (*ErrorCodes) AFact() {}
 func (e *ErrorCodes) String() string {
 	sort.Strings(e.Codes)
 	return fmt.Sprintf("ErrorCodes: %v", strings.Join(e.Codes, " "))
+}
+
+// ErrorType is a fact about a ree.Error type,
+// declaring which error codes Code() might return,
+// and/or what field gets returned by a call to Code().
+type ErrorType struct {
+	Codes []string        // error codes, or nil
+	Field *ErrorCodeField // field information, or nil
+}
+
+// ErrorCodeField is part of ErrorType,
+// and declares the field that might be returned by the Code() method of the ree.Error.
+type ErrorCodeField struct {
+	Name     string
+	Position int
+}
+
+func (*ErrorType) AFact() {}
+
+func (e *ErrorType) String() string {
+	sort.Strings(e.Codes)
+	return fmt.Sprintf("ErrorType{Field:%v, Codes:%v}", e.Field, strings.Join(e.Codes, " "))
+}
+
+func (f *ErrorCodeField) String() string {
+	return fmt.Sprintf("{Name:%q, Position:%d}", f.Name, f.Position)
 }
 
 // isErrorCodeValid checks if the given error code is valid.
@@ -123,8 +152,9 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
 				// TMP:
 				logf("Analysing error: %#v\n", pass.TypesInfo.Types[affector].Type)
-				constantCodes, _ := analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
-				affectorCodes = union(affectorCodes, constantCodes)
+				errorType := analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
+				logf("Found error type: %v\n", errorType)
+				affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
 
 				codes := extractErrorCodes(pass, affector, funcDecl)
 				affectorCodes = union(affectorCodes, codes)
@@ -399,10 +429,10 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 
 // TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
 //       Possible solution: Export the information as a fact. That should also allow the usage of errors of other packages.
-func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []string) {
+func analyseErrorType(pass *analysis.Pass, errorType types.Type) *ErrorType {
 	funcDecl, receiver := getCodeFuncFromErrorType(pass, errorType)
 	if funcDecl == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Looking through return statements of the "Code() string" method
@@ -410,6 +440,7 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []str
 	// the return of a single field.
 	// For all other return statements we mark it as invalid by emitting a diagnostic.
 	constants := set()
+	var fieldName string
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
@@ -436,12 +467,10 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []str
 			expression, ok := node.Results[0].(*ast.SelectorExpr)
 			if ok {
 				if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
-					logf("Found single field: %q\n", expression.Sel.Name)
-					position := getFieldPositionUsingMethodReceiver(receiver, expression.Sel.Name)
-					if position >= 0 {
-						logf("Field %q is at position: %d\n", expression.Sel.Name, position)
+					if fieldName != "" && fieldName != expression.Sel.Name {
+						pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
 					} else {
-						panic(fmt.Sprintf("Position for %s.%s could not be found", ident.Name, expression.Sel.Name))
+						fieldName = expression.Sel.Name
 					}
 					return false
 				}
@@ -452,7 +481,17 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) (codeSet, []str
 		return true
 	})
 
-	return constants, nil
+	var field *ErrorCodeField
+	if fieldName != "" {
+		position := getFieldPositionUsingMethodReceiver(receiver, fieldName)
+		if position >= 0 {
+			field = &ErrorCodeField{fieldName, position}
+		} else {
+			pass.Reportf(funcDecl.Pos(), "position for returned field %q could not be found", fieldName)
+		}
+	}
+
+	return &ErrorType{Codes: constants.slice(), Field: field}
 }
 
 // getFieldPositionUsingMethodReceiver get the position of the given field in the error struct.
