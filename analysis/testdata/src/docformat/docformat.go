@@ -150,7 +150,7 @@ func InvalidCodeFormat5() error { // want `function "InvalidCodeFormat5" has odd
 	return nil
 }
 
-type Error struct {
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 

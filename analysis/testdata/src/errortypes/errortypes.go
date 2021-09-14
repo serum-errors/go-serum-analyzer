@@ -38,24 +38,24 @@ func AllErrors() error { // want AllErrors:"ErrorCodes: multiple-1-error multipl
 	return nil
 }
 
-type ConstantError struct{}
+type ConstantError struct{} // want ConstantError:"ErrorType{Field:<nil>, Codes:some-error}"
 
 func (e *ConstantError) Code() string  { return "some-error" }
 func (e *ConstantError) Error() string { return "ConstantError" }
 
-type ConstantError2 struct{}
+type ConstantError2 struct{} // want ConstantError2:"ErrorType{Field:<nil>, Codes:some-2-error}"
 
 func (e *ConstantError2) Code() string  { return "some-2" + "-error" }
 func (e *ConstantError2) Error() string { return "ConstantError2" }
 
 const constantError3Code = "some-3" + "-error"
 
-type ConstantError3 struct{}
+type ConstantError3 struct{} // want ConstantError3:"ErrorType{Field:<nil>, Codes:some-3-error}"
 
 func (e *ConstantError3) Code() string  { return constantError3Code }
 func (e *ConstantError3) Error() string { return "ConstantError3" }
 
-type MultipleConstantError struct{}
+type MultipleConstantError struct{} // want MultipleConstantError:"ErrorType{Field:<nil>, Codes:multiple-1-error multiple-2-error multiple-3-error}"
 
 func (e *MultipleConstantError) Code() string {
 	switch {
@@ -69,12 +69,12 @@ func (e *MultipleConstantError) Code() string {
 }
 func (e *MultipleConstantError) Error() string { return "MultipleConstantError" }
 
-type ValueTypeError struct{}
+type ValueTypeError struct{} // want ValueTypeError:"ErrorType{Field:<nil>, Codes:value-1-error}"
 
 func (e ValueTypeError) Code() string  { return "value-1-error" }
 func (e ValueTypeError) Error() string { return "ValueTypeError" }
 
-type ValueTypeError2 struct{}
+type ValueTypeError2 struct{} // want ValueTypeError2:"ErrorType{Field:<nil>, Codes:value-2-error}"
 
 func (e ValueTypeError2) Code() string  { return "value-2-error" }
 func (e ValueTypeError2) Error() string { return "ValueTypeError2" }
@@ -89,12 +89,12 @@ type InvalidError2 struct{ field1, field2 string }
 func (e *InvalidError2) Code() string  { return e.field1 + e.field2 } // want `function "Code" should always return a string constant or a single field`
 func (e *InvalidError2) Error() string { return "InvalidError2" }
 
-type FieldError struct{ field string }
+type FieldError struct{ field string } // want FieldError:`ErrorType{Field:{Name:"field", Position:0}, Codes:}`
 
 func (e *FieldError) Code() string  { return e.field }
 func (e *FieldError) Error() string { return "FieldError" }
 
-type FieldError2 struct{ field1, field2, field3 string }
+type FieldError2 struct{ field1, field2, field3 string } // want FieldError2:`ErrorType{Field:{Name:"field1", Position:0}, Codes:}`
 
 func (e *FieldError2) Code() string {
 	switch {

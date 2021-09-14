@@ -93,7 +93,7 @@ func Eight() error {
 	return fmt.Errorf("not a nice structural error")
 }
 
-type Error struct {
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 

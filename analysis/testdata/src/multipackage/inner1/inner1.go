@@ -9,7 +9,7 @@ func ExportedFunc1() error { // want ExportedFunc1:"ErrorCodes: hello-error"
 	return &Error{"hello-error"}
 }
 
-type Error struct {
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 

@@ -152,9 +152,11 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
 				// TMP:
 				logf("Analysing error: %#v\n", pass.TypesInfo.Types[affector].Type)
-				errorType := analyseErrorType(pass, pass.TypesInfo.Types[affector].Type)
+				errorType := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
 				logf("Found error type: %v\n", errorType)
-				affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
+				if errorType != nil {
+					affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
+				}
 
 				codes := extractErrorCodes(pass, affector, funcDecl)
 				affectorCodes = union(affectorCodes, codes)
@@ -429,16 +431,51 @@ func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDec
 
 // TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
 //       Possible solution: Export the information as a fact. That should also allow the usage of errors of other packages.
-func analyseErrorType(pass *analysis.Pass, errorType types.Type) *ErrorType {
-	funcDecl, receiver := getCodeFuncFromErrorType(pass, errorType)
+func getErrorTypeForError(pass *analysis.Pass, err types.Type) *ErrorType {
+	namedErr := getNamedType(err)
+	if namedErr == nil {
+		// TODO: Implement proper error handling
+		logf("err type: %#v\n", err)
+		panic("passed invalid err type to getErrorTypeForError")
+	}
+
+	errorType := new(ErrorType)
+	if pass.ImportObjectFact(namedErr.Obj(), errorType) {
+		return errorType
+	}
+
+	funcDecl, receiver := getCodeFuncFromError(pass, err)
 	if funcDecl == nil {
 		return nil
 	}
+	errorType = analyseCodeFunction(pass, funcDecl, receiver)
 
-	// Looking through return statements of the "Code() string" method
-	// in order to find error code constants or
-	// the return of a single field.
-	// For all other return statements we mark it as invalid by emitting a diagnostic.
+	if errorType != nil {
+		pass.ExportObjectFact(namedErr.Obj(), errorType)
+	}
+
+	return errorType
+}
+
+func getNamedType(typ types.Type) *types.Named {
+	named, ok := typ.(*types.Named)
+	if ok {
+		return named
+	}
+
+	pointer, ok := typ.(*types.Pointer)
+	if ok {
+		return getNamedType(pointer.Elem())
+	}
+
+	return nil
+}
+
+// analyseCodeFunction looks through return statements of the "Code() string" method
+// in order to find error code constants or
+// the return of a single field.
+// All other return statements are marked as invalid by emitting diagnostics.
+func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
 	constants := set()
 	var fieldName string
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
@@ -491,6 +528,10 @@ func analyseErrorType(pass *analysis.Pass, errorType types.Type) *ErrorType {
 		}
 	}
 
+	if len(constants) == 0 && field == nil {
+		return nil
+	}
+
 	return &ErrorType{Codes: constants.slice(), Field: field}
 }
 
@@ -538,9 +579,9 @@ func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) 
 	return -1
 }
 
-// getCodeFuncFromErrorType finds and returns the method declaration of "Code() string" for the given error type.
+// getCodeFuncFromError finds and returns the method declaration of "Code() string" for the given error type.
 // The second result is the identifier which is the receiver of the method.
-func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
+func getCodeFuncFromError(pass *analysis.Pass, err types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
@@ -558,7 +599,7 @@ func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result
 		}
 
 		receiverField := funcDecl.Recv.List[0]
-		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, errorType) ||
+		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, err) ||
 			len(receiverField.Names) != 1 {
 			return false
 		}
@@ -573,14 +614,9 @@ func getCodeFuncFromErrorType(pass *analysis.Pass, errorType types.Type) (result
 
 // errorTypesSubset checks if type1 is a subset of type2.
 func errorTypesSubset(type1, type2 types.Type) bool {
-	if type1 == type2 {
-		return true
-	}
-
-	pointer1, ok1 := type1.(*types.Pointer)
 	pointer2, ok2 := type2.(*types.Pointer)
-	return (ok1 && ok2 && pointer1.Elem() == pointer2.Elem()) ||
-		(!ok1 && ok2 && type1 == pointer2.Elem())
+	return types.Identical(type1, type2) ||
+		(ok2 && types.Identical(type1, pointer2.Elem()))
 }
 
 // stringFromConstant tries to get concrete string value of the given constant value.
