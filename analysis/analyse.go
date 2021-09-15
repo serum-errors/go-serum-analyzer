@@ -495,7 +495,7 @@ func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *
 				if isErrorCodeValid(value) {
 					constants.add(value)
 				} else {
-					pass.ReportRangef(node, "error code from expression has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+					pass.ReportRangef(node, "error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 				}
 				return false
 			}
@@ -567,8 +567,8 @@ func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) 
 	i := 0
 	for _, field := range errorType.Fields.List {
 		if field.Names == nil {
-			// TODO: Handle field without name (e.g. type Error struct { *T })
-			panic("not implemented")
+			i++
+			continue
 		}
 
 		for _, name := range field.Names {
