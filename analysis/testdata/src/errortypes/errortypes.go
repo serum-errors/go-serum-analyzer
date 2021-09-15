@@ -70,6 +70,8 @@ func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-
 	case true:
 		return &PromotedFieldError3{nil, "promoted-3-error", "something"}
 	case true:
+		return &InvalidPromotedFieldError{Promoteable{"x", "y"}}
+	case true:
 		return &CombinedError{"combined-3-error"}
 	}
 	return nil
@@ -185,6 +187,11 @@ type PromotedFieldError3 struct { // want PromotedFieldError3:`ErrorType{Field:{
 
 func (e *PromotedFieldError3) Code() string  { return e.errorCode }
 func (e *PromotedFieldError3) Error() string { return "PromotedFieldError3" }
+
+type InvalidPromotedFieldError struct{ Promoteable }
+
+func (e *InvalidPromotedFieldError) Code() string  { return e.Some } // want `returned field "Some" is not a valid error code field`
+func (e *InvalidPromotedFieldError) Error() string { return "InvalidPromotedFieldError" }
 
 type CombinedError struct{ field string } // want CombinedError:`ErrorType{Field:{Name:"field", Position:0}, Codes:combined-1-error combined-2-error}`
 

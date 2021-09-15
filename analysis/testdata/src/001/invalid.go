@@ -45,15 +45,15 @@ func InvalidErrorCodeFormat() error { // want InvalidErrorCodeFormat:"ErrorCodes
 func invalidErrorCodeFormat() error {
 	switch {
 	case true:
-		return &Error{"5-invalid-error"} // want "error code from expression has invalid format: should match .*"
+		return &Error{"5-invalid-error"} // want "error code has invalid format: should match .*"
 	case true:
-		return &Error{"-invalid-error"} // want "error code from expression has invalid format: should match .*"
+		return &Error{"-invalid-error"} // want "error code has invalid format: should match .*"
 	case true:
-		return &Error{"invalid-error-"} // want "error code from expression has invalid format: should match .*"
+		return &Error{"invalid-error-"} // want "error code has invalid format: should match .*"
 	case true:
-		return &Error{"invalid-(chars)-error"} // want "error code from expression has invalid format: should match .*"
+		return &Error{"invalid-(chars)-error"} // want "error code has invalid format: should match .*"
 	case true:
-		return &Error{"invalid error"} // want "error code from expression has invalid format: should match .*"
+		return &Error{"invalid error"} // want "error code has invalid format: should match .*"
 	default:
 		return &Error{"hello-error"} // valid
 	}

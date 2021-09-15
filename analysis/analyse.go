@@ -147,7 +147,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(affector.Pos(), true), affector, checkErrorTypeHasLegibleCode(pass, affector))
 		}
 		logf("end of found origins.\n")
-		var affectorCodes codeSet
+		affectorCodes := set()
 		for _, affector := range affectOrigins {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
 				// TMP:
@@ -155,11 +155,19 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				errorType := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
 				logf("Found error type: %v\n", errorType)
 				if errorType != nil {
-					affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
-				}
+					if len(errorType.Codes) > 0 {
+						affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
+					}
 
-				codes := extractErrorCodes(pass, affector, funcDecl)
-				affectorCodes = union(affectorCodes, codes)
+					if errorType.Field != nil {
+						code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
+						if err == nil {
+							affectorCodes.add(code)
+						} else {
+							pass.ReportRangef(affector, "%v", err)
+						}
+					}
+				}
 			} else {
 				pass.ReportRangef(affector, "expression does not define an error code")
 			}
@@ -392,41 +400,44 @@ func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // 
 	return types.Implements(typ, tReeError)
 }
 
-// extractErrorCodes inspects the error type.
+// extractFieldErrorCodes finds a possible error code from the given constructor expression.
 //
-// If the Code() method returns a constant value: That is the error code we're looking for
-// If the Code() method returns a single struct field:
-//     Store the field position and identifier
-//         Position needed for tracking creation with a constructor
-//         Identifier needed for tracking direct assignments to the field
-//     Inspect the function where this error is created and find all possible error codes
-//     (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
-func extractErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDecl) codeSet {
-	result := codeSet{}
+// The expression evaluates to an error of the given error type, which has its errorType.Field set to a value (not nil).
+func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.FuncDecl, errorType *ErrorType) (string, error) {
+	if errorType == nil || errorType.Field == nil {
+		return "", fmt.Errorf("cannot extract field error code without field definition")
+	}
+
 	switch expr := expr.(type) {
 	case *ast.CompositeLit:
-		// TODO: Implement (This is only a dummy implementation so far!)
-		if len(expr.Elts) == 1 {
-			if info, ok := pass.TypesInfo.Types[expr.Elts[0]]; ok && info.Value != nil {
+		pos := errorType.Field.Position
+		if pos < len(expr.Elts) {
+			info, ok := pass.TypesInfo.Types[expr.Elts[pos]]
+			if ok && info.Value != nil {
 				if info.Value.Kind() == constant.String {
 					value := info.Value.String()
 					value, err := strconv.Unquote(value)
-					if err == nil && isErrorCodeValid(value) {
-						result.add(value)
-					} else {
-						pass.ReportRangef(expr, "error code from expression has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+					if err != nil {
+						return "", fmt.Errorf("problem unquoting string constant value: %v", err)
 					}
+
+					if !isErrorCodeValid(value) {
+						return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+					}
+
+					return value, nil
 				}
 			}
 		}
 	case *ast.UnaryExpr:
 		if expr.Op == token.AND {
-			result = union(result, extractErrorCodes(pass, expr.X, funcDecl))
+			return extractFieldErrorCodes(pass, expr.X, funcDecl, errorType)
 		}
 	default:
 		logf("extractErrorCodes did not yet handle: %#v\n", expr)
 	}
-	return result
+
+	return "", fmt.Errorf("error code field has to be instantiated by constant value")
 }
 
 // TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
@@ -449,7 +460,7 @@ func getErrorTypeForError(pass *analysis.Pass, err types.Type) *ErrorType {
 		logf("Found no function \"Code() string\" for given error\n")
 		return nil
 	}
-	errorType = analyseCodeFunction(pass, funcDecl, receiver)
+	errorType = analyseCodeMethod(pass, funcDecl, receiver)
 
 	if errorType != nil {
 		pass.ExportObjectFact(namedErr.Obj(), errorType)
@@ -472,11 +483,18 @@ func getNamedType(typ types.Type) *types.Named {
 	return nil
 }
 
-// analyseCodeFunction looks through return statements of the "Code() string" method
-// in order to find error code constants or
-// the return of a single field.
+// analyseCodeMethod inspects the error type.
+//
+// If the Code() method returns a constant value:
+//     That is the error code we're looking for
+//     Having multiple return statements returning different error codes is also possible
+//     (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
+// If the Code() method returns a single struct field:
+//     Find and return the field position and identifier
+//         Position needed for tracking creation with a constructor
+//         Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
-func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
+func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
 	constants := set()
 	var fieldName string
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
@@ -527,7 +545,8 @@ func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *
 		if position >= 0 {
 			field = &ErrorCodeField{fieldName, position}
 		} else {
-			pass.Reportf(funcDecl.Pos(), "position for returned field %q could not be found", fieldName)
+			logf("position for returned field %q could not be found", fieldName)
+			pass.Reportf(funcDecl.Pos(), "returned field %q is not a valid error code field", fieldName)
 		}
 	}
 
@@ -583,7 +602,9 @@ func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) 
 }
 
 // getCodeFuncFromError finds and returns the method declaration of "Code() string" for the given error type.
-// The second result is the identifier which is the receiver of the method.
+//
+// The second result is the identifier which is the receiver of the method,
+// or nil if the receiver is unnamed.
 func getCodeFuncFromError(pass *analysis.Pass, err types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
