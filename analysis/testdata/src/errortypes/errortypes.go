@@ -7,12 +7,13 @@ package errortypes
 //    - some-error       --
 //    - some-2-error     --
 //    - some-3-error     --
+//    - some-4-error     --
 //    - multiple-1-error --
 //    - multiple-2-error --
 //    - multiple-3-error --
 //    - value-1-error    --
 //    - value-2-error    --
-func AllErrors() error { // want AllErrors:"ErrorCodes: multiple-1-error multiple-2-error multiple-3-error some-2-error some-3-error some-error value-1-error value-2-error"
+func AllErrors() error { // want AllErrors:"ErrorCodes: multiple-1-error multiple-2-error multiple-3-error some-2-error some-3-error some-4-error some-error value-1-error value-2-error"
 	switch {
 	case true:
 		return &ConstantError{}
@@ -20,6 +21,8 @@ func AllErrors() error { // want AllErrors:"ErrorCodes: multiple-1-error multipl
 		return &ConstantError2{}
 	case true:
 		return &ConstantError3{}
+	case true:
+		return &ConstantError4{}
 	case true:
 		return &MultipleConstantError{}
 	case true:
@@ -54,6 +57,11 @@ type ConstantError3 struct{} // want ConstantError3:"ErrorType{Field:<nil>, Code
 
 func (e *ConstantError3) Code() string  { return constantError3Code }
 func (e *ConstantError3) Error() string { return "ConstantError3" }
+
+type ConstantError4 struct{} // want ConstantError4:"ErrorType{Field:<nil>, Codes:some-4-error}"
+
+func (*ConstantError4) Code() string  { return "some-4-error" }
+func (*ConstantError4) Error() string { return "ConstantError4" }
 
 type MultipleConstantError struct{} // want MultipleConstantError:"ErrorType{Field:<nil>, Codes:multiple-1-error multiple-2-error multiple-3-error}"
 

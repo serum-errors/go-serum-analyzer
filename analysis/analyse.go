@@ -446,6 +446,7 @@ func getErrorTypeForError(pass *analysis.Pass, err types.Type) *ErrorType {
 
 	funcDecl, receiver := getCodeFuncFromError(pass, err)
 	if funcDecl == nil {
+		logf("Found no function \"Code() string\" for given error\n")
 		return nil
 	}
 	errorType = analyseCodeFunction(pass, funcDecl, receiver)
@@ -501,15 +502,17 @@ func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *
 
 			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
 			// TODO: Handle promoted fields of error types
-			expression, ok := node.Results[0].(*ast.SelectorExpr)
-			if ok {
-				if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
-					if fieldName != "" && fieldName != expression.Sel.Name {
-						pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
-					} else {
-						fieldName = expression.Sel.Name
+			if receiver != nil {
+				expression, ok := node.Results[0].(*ast.SelectorExpr)
+				if ok {
+					if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
+						if fieldName != "" && fieldName != expression.Sel.Name {
+							pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
+						} else {
+							fieldName = expression.Sel.Name
+						}
+						return false
 					}
-					return false
 				}
 			}
 
@@ -519,7 +522,7 @@ func analyseCodeFunction(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *
 	})
 
 	var field *ErrorCodeField
-	if fieldName != "" {
+	if fieldName != "" && receiver != nil {
 		position := getFieldPositionUsingMethodReceiver(receiver, fieldName)
 		if position >= 0 {
 			field = &ErrorCodeField{fieldName, position}
@@ -599,13 +602,15 @@ func getCodeFuncFromError(pass *analysis.Pass, err types.Type) (result *ast.Func
 		}
 
 		receiverField := funcDecl.Recv.List[0]
-		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, err) ||
-			len(receiverField.Names) != 1 {
+		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, err) {
 			return false
 		}
 
+		if len(receiverField.Names) == 1 {
+			receiver = receiverField.Names[0]
+		}
+
 		result = funcDecl
-		receiver = receiverField.Names[0]
 		return false
 	})
 
