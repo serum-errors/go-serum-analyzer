@@ -150,8 +150,6 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 		affectorCodes := set()
 		for _, affector := range affectOrigins {
 			if checkErrorTypeHasLegibleCode(pass, affector) {
-				// TMP:
-				logf("Analysing error: %#v\n", pass.TypesInfo.Types[affector].Type)
 				errorType := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
 				logf("Found error type: %v\n", errorType)
 				if errorType != nil {
@@ -410,23 +408,36 @@ func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.Fu
 
 	switch expr := expr.(type) {
 	case *ast.CompositeLit:
+		logf("composite: %#v\n", expr)
+		// Key-based composite literal:
+		// Use the field name to find the error code.
+		for _, element := range expr.Elts {
+			element, ok := element.(*ast.KeyValueExpr)
+			if !ok { // Either all elements are KeyValueExpr or none.
+				break
+			}
+
+			ident, ok := element.Key.(*ast.Ident)
+			if !ok {
+				logf("found weird key %#v in composite literal %#v\n", element.Key, expr)
+				break
+			}
+
+			if errorType.Field.Name == ident.Name {
+				info, ok := pass.TypesInfo.Types[element.Value]
+				if ok && info.Value != nil {
+					return getErrorCodeFromConstant(info.Value)
+				}
+			}
+		}
+
+		// Position-based composite literal:
+		// Use the field position to find the error code.
 		pos := errorType.Field.Position
 		if pos < len(expr.Elts) {
 			info, ok := pass.TypesInfo.Types[expr.Elts[pos]]
 			if ok && info.Value != nil {
-				if info.Value.Kind() == constant.String {
-					value := info.Value.String()
-					value, err := strconv.Unquote(value)
-					if err != nil {
-						return "", fmt.Errorf("problem unquoting string constant value: %v", err)
-					}
-
-					if !isErrorCodeValid(value) {
-						return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
-					}
-
-					return value, nil
-				}
+				return getErrorCodeFromConstant(info.Value)
 			}
 		}
 	case *ast.UnaryExpr:
@@ -438,6 +449,27 @@ func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.Fu
 	}
 
 	return "", fmt.Errorf("error code field has to be instantiated by constant value")
+}
+
+func getErrorCodeFromConstant(value constant.Value) (string, error) {
+	if value.Kind() != constant.String {
+		// Should not be reachable, because we already checked the signature of Code() to return a string.
+		// And the value is in the end one that gets returned by Code().
+		// So there should be a compiler error if value is not of type string.
+		return "", fmt.Errorf("error code has to be of type string")
+	}
+
+	result := value.String()
+	result, err := strconv.Unquote(result)
+	if err != nil {
+		return "", fmt.Errorf("problem unquoting string constant value: %v", err)
+	}
+
+	if !isErrorCodeValid(result) {
+		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+	}
+
+	return result, nil
 }
 
 // TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
