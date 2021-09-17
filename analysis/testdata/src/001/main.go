@@ -93,6 +93,17 @@ func Eight() error { // want `function "Eight" has a mismatch of declared and ac
 	return fmt.Errorf("not a nice structural error")
 }
 
+// Named returns an error by named return arguments.
+//
+// Errors:
+//
+//    - named-error -- is always returned
+func Named() (something string, err error) { // want Named:"ErrorCodes: named-error"
+	something = "value"
+	err = &Error{"named-error"}
+	return
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

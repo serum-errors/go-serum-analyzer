@@ -327,19 +327,37 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 		case *ast.FuncLit:
 			return false // We don't want to see return statements from in a nested function right now.
 		case *ast.ReturnStmt:
-			// TODO stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
-			logf("function %q has a return statement: %s\n", funcDecl.Name.Name, stmt.Results)
+			// stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
+			var resultExpression ast.Expr
+			if len(stmt.Results) == 0 {
+				resultTypes := funcDecl.Type.Results.List
+				if len(resultTypes) == 0 {
+					panic("Should be unreachable: we already know that the function signature contains an error result.")
+				}
+
+				resultIdents := resultTypes[len(resultTypes)-1].Names
+				if len(resultIdents) == 0 {
+					panic("Should be unreachable: an empty return statement requires either empty result list or named results.")
+				}
+
+				resultExpression = resultIdents[len(resultIdents)-1]
+			} else {
+				resultExpression = stmt.Results[len(stmt.Results)-1]
+			}
+
 			// This can go a lot of ways:
 			// - You can have a plain `*ast.Ident` (aka returning a variable).
 			// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
 			// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
+			if resultExpression != nil {
+				newAffectors, newCodes := findAffectors(pass, resultExpression, funcDecl)
+				affectors = append(affectors, newAffectors...)
+				codes = union(codes, newCodes)
+			}
 
-			lastResult := stmt.Results[len(stmt.Results)-1]
-			newAffectors, newCodes := findAffectors(pass, lastResult, funcDecl)
-			affectors = append(affectors, newAffectors...)
-			codes = union(codes, newCodes)
+			return false
 		}
 		return true
 	})
@@ -533,7 +551,7 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 			return false // Were not interested in return statements of nested function literals
 		case *ast.ReturnStmt:
 			if node.Results == nil || len(node.Results) != 1 {
-				panic("Should be unreachable: We already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
+				panic("Should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
 			}
 
 			// If the return statement returns a constant string value:
