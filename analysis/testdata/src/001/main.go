@@ -104,6 +104,21 @@ func Named() (something string, err error) { // want Named:"ErrorCodes: named-er
 	return
 }
 
+// Shadowed returns an error by named return arguments.
+//
+// Errors:
+//
+//    - named-error -- is always returned
+func Shadowed() (err error) { // want Shadowed:"ErrorCodes: named-error"
+	err = &Error{"named-error"}
+	{
+		var err string // shadowed
+		err = "some value"
+		_ = err
+	}
+	return
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
