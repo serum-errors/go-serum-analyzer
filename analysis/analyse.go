@@ -142,32 +142,30 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
 		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
-		logf("trace found these additional origins of error data...\n")
-		for _, affector := range affectOrigins {
-			logf(" - %s -- %s -- %v\n", pass.Fset.PositionFor(affector.Pos(), true), affector, checkErrorTypeHasLegibleCode(pass, affector))
-		}
-		logf("end of found origins.\n")
 		affectorCodes := set()
 		for _, affector := range affectOrigins {
-			if checkErrorTypeHasLegibleCode(pass, affector) {
-				errorType := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
-				logf("Found error type: %v\n", errorType)
-				if errorType != nil {
-					if len(errorType.Codes) > 0 {
-						affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
-					}
+			// Make sure method "Code() string" is present
+			if !checkErrorTypeHasLegibleCode(pass, affector) {
+				pass.ReportRangef(affector, "expression does not define an error code")
+				continue
+			}
 
-					if errorType.Field != nil {
-						code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
-						if err == nil {
-							affectorCodes.add(code)
-						} else {
-							pass.ReportRangef(affector, "%v", err)
-						}
+			errorType, err := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
+			if err != nil {
+				logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
+			} else if errorType != nil {
+				if len(errorType.Codes) > 0 {
+					affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
+				}
+
+				if errorType.Field != nil {
+					code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
+					if err == nil {
+						affectorCodes.add(code)
+					} else {
+						pass.ReportRangef(affector, "%v", err)
 					}
 				}
-			} else {
-				pass.ReportRangef(affector, "expression does not define an error code")
 			}
 		}
 		foundCodes = union(foundCodes, affectorCodes)
@@ -408,7 +406,6 @@ func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, funcDecl *ast.Fu
 
 	switch expr := expr.(type) {
 	case *ast.CompositeLit:
-		logf("composite: %#v\n", expr)
 		// Key-based composite literal:
 		// Use the field name to find the error code.
 		for _, element := range expr.Elts {
@@ -472,25 +469,23 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	return result, nil
 }
 
-// TODO: Store the result per errorType. The problem is: equal types don't seem to be equal (see errorTypesEqual())
-//       Possible solution: Export the information as a fact. That should also allow the usage of errors of other packages.
-func getErrorTypeForError(pass *analysis.Pass, err types.Type) *ErrorType {
+// getErrorTypeForError gets the ErrorType for the given error from cache,
+// or on a cache miss computes said ErrorType and stores it in the cache.
+func getErrorTypeForError(pass *analysis.Pass, err types.Type) (*ErrorType, error) {
 	namedErr := getNamedType(err)
 	if namedErr == nil {
-		// TODO: Implement proper error handling
 		logf("err type: %#v\n", err)
-		panic("passed invalid err type to getErrorTypeForError")
+		return nil, fmt.Errorf("passed invalid err type to getErrorTypeForError")
 	}
 
 	errorType := new(ErrorType)
 	if pass.ImportObjectFact(namedErr.Obj(), errorType) {
-		return errorType
+		return errorType, nil
 	}
 
 	funcDecl, receiver := getCodeFuncFromError(pass, err)
 	if funcDecl == nil {
-		logf("Found no function \"Code() string\" for given error\n")
-		return nil
+		return nil, fmt.Errorf(`found no method "Code() string" for given error`)
 	}
 	errorType = analyseCodeMethod(pass, funcDecl, receiver)
 
@@ -498,9 +493,12 @@ func getErrorTypeForError(pass *analysis.Pass, err types.Type) *ErrorType {
 		pass.ExportObjectFact(namedErr.Obj(), errorType)
 	}
 
-	return errorType
+	return errorType, nil
 }
 
+// getNamedType casts the given type to *types.Named if possible,
+// unpacking pointers if they occur.
+// getNamedType returns nil, if said conversion fails.
 func getNamedType(typ types.Type) *types.Named {
 	named, ok := typ.(*types.Named)
 	if ok {
@@ -541,25 +539,27 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 			// If the return statement returns a constant string value:
 			// Check if it is a valid error code and if so add it to the error code constants.
 			returnType := pass.TypesInfo.Types[node.Results[0]]
-			if value, ok := stringFromConstant(returnType.Value); ok {
-				if isErrorCodeValid(value) {
+			if returnType.Value != nil {
+				value, err := getErrorCodeFromConstant(returnType.Value)
+				if err == nil {
 					constants.add(value)
 				} else {
-					pass.ReportRangef(node, "error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+					pass.ReportRangef(node, "%v", err)
 				}
 				return false
 			}
 
 			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
-			// TODO: Handle promoted fields of error types
+			// Otherwise check if a single field is returned.
+			// Make sure that always the same field is returned and otherwise emit a diagnostic.
 			if receiver != nil {
 				expression, ok := node.Results[0].(*ast.SelectorExpr)
 				if ok {
 					if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
-						if fieldName != "" && fieldName != expression.Sel.Name {
-							pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
-						} else {
+						if fieldName == "" {
 							fieldName = expression.Sel.Name
+						} else if fieldName != expression.Sel.Name {
+							pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
 						}
 						return false
 					}
@@ -675,16 +675,4 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 	pointer2, ok2 := type2.(*types.Pointer)
 	return types.Identical(type1, type2) ||
 		(ok2 && types.Identical(type1, pointer2.Elem()))
-}
-
-// stringFromConstant tries to get concrete string value of the given constant value.
-func stringFromConstant(value constant.Value) (string, bool) {
-	if value != nil && value.Kind() == constant.String {
-		value := value.String()
-		value, err := strconv.Unquote(value)
-		if err == nil {
-			return value, true
-		}
-	}
-	return "", false
 }

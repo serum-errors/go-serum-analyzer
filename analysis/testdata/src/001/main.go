@@ -89,7 +89,7 @@ func Seven() error {
 // Errors:
 //
 //    - hello-error -- is a lie, won't actually happen.
-func Eight() error {
+func Eight() error { // want `function "Eight" has a mismatch of declared and actual error codes: unused codes: \[hello-error]`
 	return fmt.Errorf("not a nice structural error")
 }
 
