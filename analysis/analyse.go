@@ -151,6 +151,9 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			}
 
 			errorType, err := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
+			if err != nil || errorType == nil {
+				pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
+			}
 			if err != nil {
 				logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
 			} else if errorType != nil {
@@ -595,12 +598,14 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 		if position >= 0 {
 			field = &ErrorCodeField{fieldName, position}
 		} else {
-			logf("position for returned field %q could not be found", fieldName)
-			pass.Reportf(funcDecl.Pos(), "returned field %q is not a valid error code field", fieldName)
+			pass.Reportf(funcDecl.Pos(), "returned field %q is not a valid error code field (promoted fields are not supported currently, but might be added in the future)", fieldName)
 		}
 	}
 
 	if len(constants) == 0 && field == nil {
+		// In this case errors are already reported:
+		// The signature of the Code() method requires at least one return statement in its implementation.
+		// The return statements are all analysed and only if all are invalid this branch is entered.
 		return nil
 	}
 

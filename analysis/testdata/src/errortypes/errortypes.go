@@ -42,9 +42,9 @@ func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-
 	case true:
 		return &ValueTypeError2{} // valid because methods of T are also methods of *T
 	case true:
-		return &InvalidError{}
+		return &InvalidError{} // want "expression is not a valid error: error types must return constant error codes or a single field"
 	case true:
-		return &InvalidError2{}
+		return &InvalidError2{} // want "expression is not a valid error: error types must return constant error codes or a single field"
 	case true:
 		return &FieldError{"field-1-error"}
 	case true:
@@ -70,7 +70,7 @@ func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-
 	case true:
 		return &PromotedFieldError3{nil, "promoted-3-error", "something"}
 	case true:
-		return &InvalidPromotedFieldError{Promoteable{"x", "y"}}
+		return &InvalidPromotedFieldError{Promoteable{"x", "y"}} // want "expression is not a valid error: error types must return constant error codes or a single field"
 	case true:
 		return &CombinedError{"combined-3-error"}
 	}
@@ -190,7 +190,7 @@ func (e *PromotedFieldError3) Error() string { return "PromotedFieldError3" }
 
 type InvalidPromotedFieldError struct{ Promoteable }
 
-func (e *InvalidPromotedFieldError) Code() string  { return e.Some } // want `returned field "Some" is not a valid error code field`
+func (e *InvalidPromotedFieldError) Code() string  { return e.Some } // want `returned field "Some" is not a valid error code field \(promoted fields are not supported currently, but might be added in the future\)`
 func (e *InvalidPromotedFieldError) Error() string { return "InvalidPromotedFieldError" }
 
 type CombinedError struct{ field string } // want CombinedError:`ErrorType{Field:{Name:"field", Position:0}, Codes:combined-1-error combined-2-error}`
