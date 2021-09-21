@@ -427,14 +427,20 @@ func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, starti
 			// If so we use those, otherwise we try to recurse and compute error codes for that function.
 			callee := typeutil.Callee(pass.TypesInfo, exprt)
 			var fact ErrorCodes
-			if pass.ImportObjectFact(callee, &fact) {
+			if callee != nil && pass.ImportObjectFact(callee, &fact) {
 				codes = union(codes, sliceToSet(fact.Codes))
 			} else {
 				var calledFunc *ast.FuncDecl
 
 				switch funst := exprt.Fun.(type) {
 				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
-					calledFunc = funst.Obj.Decl.(*ast.FuncDecl)
+					switch funcDecl := funst.Obj.Decl.(type) {
+					case *ast.FuncDecl: // Noramal function call
+						calledFunc = funcDecl
+					case *ast.TypeSpec: // Type conversion
+						affectors = append(affectors, exprt)
+						continue
+					}
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
 					if target, ok := funst.X.(*ast.Ident); ok {
 						if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {

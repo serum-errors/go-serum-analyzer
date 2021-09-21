@@ -25,7 +25,8 @@ package errortypes
 //    - combined-1-error --
 //    - combined-2-error --
 //    - combined-3-error --
-func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-error combined-2-error combined-3-error field-1-error field-2-error field-3-error field-4-error field-5-error field-6-error multiple-1-error multiple-2-error multiple-3-error promoted-1-error promoted-2-error promoted-3-error some-2-error some-3-error some-4-error some-error value-1-error value-2-error"
+//    - string-error     --
+func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-error combined-2-error combined-3-error field-1-error field-2-error field-3-error field-4-error field-5-error field-6-error multiple-1-error multiple-2-error multiple-3-error promoted-1-error promoted-2-error promoted-3-error some-2-error some-3-error some-4-error some-error string-error value-1-error value-2-error"
 	switch {
 	case true:
 		return &ConstantError{}
@@ -73,6 +74,10 @@ func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-
 		return &InvalidPromotedFieldError{Promoteable{"x", "y"}} // want "expression is not a valid error: error types must return constant error codes or a single field"
 	case true:
 		return &CombinedError{"combined-3-error"}
+	case true:
+		return ValidStringError("some error text")
+	case true:
+		return InvalidStringError("string-2-error") // want "expression is not a valid error: error types must return constant error codes or a single field"
 	}
 	return nil
 }
@@ -205,3 +210,13 @@ func (e *CombinedError) Code() string {
 	return "combined-2-error"
 }
 func (e *CombinedError) Error() string { return "CombinedError" }
+
+type ValidStringError string // want ValidStringError:`ErrorType{Field:<nil>, Codes:string-error}`
+
+func (e ValidStringError) Code() string  { return "string-error" }
+func (e ValidStringError) Error() string { return "ValidStringError" }
+
+type InvalidStringError string
+
+func (e InvalidStringError) Code() string  { return string(e) } // want `function "Code" should always return a string constant or a single field`
+func (e InvalidStringError) Error() string { return "InvalidStringError" }
