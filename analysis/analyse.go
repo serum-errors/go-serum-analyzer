@@ -455,11 +455,17 @@ func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, starti
 					methods, ok := lookup.methods[funst.Sel.Name]
 					if ok && len(methods) > 0 {
 						selection := pass.TypesInfo.Selections[funst]
-						for _, method := range methods {
-							recvType := pass.TypesInfo.Types[method.Recv.List[0].Type].Type
-							if types.AssignableTo(selection.Recv(), recvType) {
-								calledFunc = method
-								break
+						// TODO: Use the MethodSet cache from typeutil
+						recvMethodSet := types.NewMethodSet(selection.Recv())
+						searchedMethodType := recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
+						if searchedMethodType != nil {
+							// Method we're looking for exists in the current package, we only need to find it
+							for _, method := range methods {
+								methodType := pass.TypesInfo.Defs[method.Name].Type()
+								if types.Identical(searchedMethodType.Type(), methodType) {
+									calledFunc = method
+									break
+								}
 							}
 						}
 					}
