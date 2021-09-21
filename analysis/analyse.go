@@ -140,7 +140,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
-		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, funcDecl)
+		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, lookup, funcDecl)
 		affectorCodes := set()
 		for _, affector := range affectOrigins {
 			// Make sure method "Code() string" is present
@@ -363,7 +363,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 	return
 }
 
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup funcLookup, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -395,7 +395,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
-				newAffectors, newCodes := findAffectors(pass, resultExpression, funcDecl)
+				newAffectors, newCodes := findAffectors(pass, lookup, resultExpression, funcDecl)
 				affectors = append(affectors, newAffectors...)
 				codes = union(codes, newCodes)
 			}
@@ -418,7 +418,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, funcDecl *ast.FuncDec
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -430,12 +430,11 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 			if pass.ImportObjectFact(callee, &fact) {
 				codes = union(codes, sliceToSet(fact.Codes))
 			} else {
+				var calledFunc *ast.FuncDecl
+
 				switch funst := exprt.Fun.(type) {
 				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
-					calledFunc := funst.Obj.Decl.(*ast.FuncDecl)
-					newAffectors, newCodes := findAffectorsOfErrorReturnInFunc(pass, calledFunc)
-					affectors = append(affectors, newAffectors...)
-					codes = union(codes, newCodes)
+					calledFunc = funst.Obj.Decl.(*ast.FuncDecl)
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
 					if target, ok := funst.X.(*ast.Ident); ok {
 						if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
@@ -445,8 +444,30 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 						}
 					}
 
-					// This case is gonna be harder: We need to figure out which function declaration applies,
-					// because there is no object information provided for method calls.
+					// This case is gonna be harder than functions: We need to figure out which function declaration applies,
+					// because there is no object information provided for methods calls.
+					methods, ok := lookup.methods[funst.Sel.Name]
+					if ok && len(methods) > 0 {
+						selection := pass.TypesInfo.Selections[funst]
+						for _, method := range methods {
+							recvType := pass.TypesInfo.Types[method.Recv.List[0].Type].Type
+							if types.AssignableTo(selection.Recv(), recvType) {
+								calledFunc = method
+								break
+							}
+						}
+					}
+				default:
+					panic("Fun of an ast.CallExpr which is neither an ast.Ident nor an ast.SelectorExpr")
+				}
+
+				if calledFunc != nil {
+					newAffectors, newCodes := findAffectorsOfErrorReturnInFunc(pass, lookup, calledFunc)
+					affectors = append(affectors, newAffectors...)
+					codes = union(codes, newCodes)
+				} else {
+					// Could e.g. be a method which is defined in another package
+					pass.ReportRangef(exprt.Fun, "called function does not declare error codes")
 				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:

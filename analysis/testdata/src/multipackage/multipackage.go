@@ -52,7 +52,7 @@ func returnTrap() TrapType {
 	return TrapType{}
 }
 
-type Error struct {
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 
