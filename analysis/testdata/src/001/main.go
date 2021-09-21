@@ -90,7 +90,7 @@ func Seven() error {
 //
 //    - hello-error -- is a lie, won't actually happen.
 func Eight() error { // want `function "Eight" has a mismatch of declared and actual error codes: unused codes: \[hello-error]`
-	return fmt.Errorf("not a nice structural error")
+	return fmt.Errorf("not a nice structural error") // want `function "Errorf" in package "fmt" does not declare error codes`
 }
 
 // Named returns an error by named return arguments.

@@ -93,10 +93,9 @@ func isErrorCodeValid(code string) bool {
 	return true
 }
 
-// FUTURE: may add another analyser that is "ree-exhaustive".
-
 func runVerify(pass *analysis.Pass) (interface{}, error) {
-	funcsToAnalyse := findErrorReturningFunctions(pass)
+	lookup := collectFunctions(pass)
+	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
 	// First output: warn directly about any functions that are exported
 	// if they return errors, but don't declare error codes in their docs.
@@ -205,9 +204,29 @@ var tReeError = types.NewInterfaceType([]*types.Func{
 	types.NewFunc(token.NoPos, nil, "Code", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
 }, nil).Complete()
 
-// findErrorReturningFunctions looks for functions that return an error,
-// and emits a diagnostic if a function returns an error, but not as the last argument.
-func findErrorReturningFunctions(pass *analysis.Pass) []*ast.FuncDecl {
+// funcLookup allows the performant lookup of function and method declarations in the current package by name.
+type funcLookup struct {
+	functions map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
+	methods   map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
+}
+
+// forEach traverses all the functions and methods in the lookup,
+// and applies the given function f to every ast.FuncDecl.
+func (lookup funcLookup) forEach(f func(*ast.FuncDecl)) {
+	for _, funcDecl := range lookup.functions {
+		f(funcDecl)
+	}
+
+	for _, methods := range lookup.methods {
+		for _, funcDecl := range methods {
+			f(funcDecl)
+		}
+	}
+}
+
+// collectFunctions creates a funcLookup using the given analysis object.
+func collectFunctions(pass *analysis.Pass) funcLookup {
+	result := funcLookup{map[string]*ast.FuncDecl{}, map[string][]*ast.FuncDecl{}}
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	// We only need to see function declarations at first; we'll recurse ourselves within there.
@@ -215,6 +234,26 @@ func findErrorReturningFunctions(pass *analysis.Pass) []*ast.FuncDecl {
 		(*ast.FuncDecl)(nil),
 	}
 
+	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
+		funcDecl := node.(*ast.FuncDecl)
+
+		// Check if it's a function or a method and add accordingly.
+		if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
+			result.functions[funcDecl.Name.Name] = funcDecl
+		} else {
+			result.methods[funcDecl.Name.Name] = append(result.methods[funcDecl.Name.Name], funcDecl)
+		}
+
+		// Never recurse into the function bodies
+		return false
+	})
+
+	return result
+}
+
+// findErrorReturningFunctions looks for functions that return an error,
+// and emits a diagnostic if a function returns an error, but not as the last argument.
+func findErrorReturningFunctions(pass *analysis.Pass, lookup funcLookup) []*ast.FuncDecl {
 	// Let's look only at functions that return errors;
 	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
 	//
@@ -225,8 +264,7 @@ func findErrorReturningFunctions(pass *analysis.Pass) []*ast.FuncDecl {
 	// Sometimes these will also, furthermore, perhaps implement our own extended error interface...
 	// but if so, that's something we'll look into more later, not right now.
 	var funcsToAnalyse []*ast.FuncDecl
-	inspect.Preorder(nodeFilter, func(node ast.Node) {
-		funcDecl := node.(*ast.FuncDecl)
+	lookup.forEach(func(funcDecl *ast.FuncDecl) {
 		resultsList := funcDecl.Type.Results
 		if resultsList == nil {
 			return
@@ -288,14 +326,13 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 								// Destructuring mode.
 								// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
 								if i != len(stmt2.Lhs)-1 {
-									pass.Reportf(clauset.Pos(), "unsupported: tracking error codes for function call with error as non-last return argument")
+									pass.ReportRangef(clauset, "unsupported: tracking error codes for function call with error as non-last return argument")
 									return false
 								}
 								// Because it's a CallExpr, we're done here: this is part of the result.
-								switch stmt2.Rhs[0].(type) {
-								case *ast.CallExpr:
-									result = append(result, stmt2.Rhs[0])
-								default:
+								if stmt2, ok := stmt2.Rhs[0].(*ast.CallExpr); ok {
+									result = append(result, stmt2)
+								} else {
 									panic("what?")
 								}
 							} else {
@@ -311,10 +348,13 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 		})
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
-		if types.Implements(pass.TypesInfo.Types[expr].Type, tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
+		if exprt.Op == token.AND && types.Implements(pass.TypesInfo.Types[expr].Type, tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
 			return []ast.Expr{expr}
 		}
-		return findAffectorsInFunc(pass, exprt.X, within)
+
+		// If it's not fulfilling the error interface it's not supported
+		pass.ReportRangef(exprt, "expression does not implement valid error type")
+		return nil
 	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
 		return []ast.Expr{expr}
 	default:
@@ -397,7 +437,16 @@ func findAffectors(pass *analysis.Pass, expr ast.Expr, startingFunc *ast.FuncDec
 					affectors = append(affectors, newAffectors...)
 					codes = union(codes, newCodes)
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
-					logf("todo: findAffectors doesn't yet search beyond selector expressions %#v\n", funst)
+					if target, ok := funst.X.(*ast.Ident); ok {
+						if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
+							// We're calling a function in a package that does not have declared error codes
+							pass.ReportRangef(funst, "function %q in package %q does not declare error codes", funst.Sel.Name, obj.Imported().Name())
+							continue
+						}
+					}
+
+					// This case is gonna be harder: We need to figure out which function declaration applies,
+					// because there is no object information provided for method calls.
 				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
