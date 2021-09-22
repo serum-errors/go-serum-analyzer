@@ -208,6 +208,15 @@ var tReeError = types.NewInterfaceType([]*types.Func{
 type funcLookup struct {
 	functions map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
 	methods   map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
+	methodSet typeutil.MethodSetCache
+}
+
+func newFuncLookup() *funcLookup {
+	return &funcLookup{
+		map[string]*ast.FuncDecl{},
+		map[string][]*ast.FuncDecl{},
+		typeutil.MethodSetCache{},
+	}
 }
 
 // forEach traverses all the functions and methods in the lookup,
@@ -225,8 +234,8 @@ func (lookup funcLookup) forEach(f func(*ast.FuncDecl)) {
 }
 
 // collectFunctions creates a funcLookup using the given analysis object.
-func collectFunctions(pass *analysis.Pass) funcLookup {
-	result := funcLookup{map[string]*ast.FuncDecl{}, map[string][]*ast.FuncDecl{}}
+func collectFunctions(pass *analysis.Pass) *funcLookup {
+	result := newFuncLookup()
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	// We only need to see function declarations at first; we'll recurse ourselves within there.
@@ -253,7 +262,7 @@ func collectFunctions(pass *analysis.Pass) funcLookup {
 
 // findErrorReturningFunctions looks for functions that return an error,
 // and emits a diagnostic if a function returns an error, but not as the last argument.
-func findErrorReturningFunctions(pass *analysis.Pass, lookup funcLookup) []*ast.FuncDecl {
+func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast.FuncDecl {
 	// Let's look only at functions that return errors;
 	// and furthermore, errors as their last result (that's a normal enough convention, isn't it?).
 	//
@@ -363,7 +372,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 	return
 }
 
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup funcLookup, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -418,7 +427,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup funcLookup, fu
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -455,10 +464,18 @@ func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, starti
 					methods, ok := lookup.methods[funst.Sel.Name]
 					if ok && len(methods) > 0 {
 						selection := pass.TypesInfo.Selections[funst]
-						// TODO: Use the MethodSet cache from typeutil
-						// TODO: Use typeutil intuitive method set maybe? Or otherwise catch indirect method calls
-						recvMethodSet := types.NewMethodSet(selection.Recv())
+						recvMethodSet := lookup.methodSet.MethodSet(selection.Recv())
 						searchedMethodType := recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
+
+						// Search methods for *T if no methods were found for T and T is not already a pointer.
+						if searchedMethodType == nil {
+							_, ok := selection.Recv().(*types.Pointer)
+							if !ok {
+								recvMethodSet = lookup.methodSet.MethodSet(types.NewPointer(selection.Recv()))
+								searchedMethodType = recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
+							}
+						}
+
 						if searchedMethodType != nil {
 							// Method we're looking for exists in the current package, we only need to find the right declaration
 							for _, method := range methods {

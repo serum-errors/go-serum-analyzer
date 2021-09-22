@@ -80,21 +80,43 @@ func (*X) methodA() error {
 	return &Error{"x-error"}
 }
 
+// Unused, here to test that the correct valueMethodA is found.
+func (X) valueMethodA() error {
+	return &Error{"x-value-error"}
+}
+
 func (*A) methodA() error {
 	return &Error{"a-error"}
+}
+
+func (A) valueMethodA() error {
+	return &Error{"a-value-error"}
 }
 
 func (*B) methodB() error {
 	return &Error{"b-error"}
 }
 
+func (B) valueMethodB() error {
+	return &Error{"b-value-error"}
+}
+
 func (*C) methodC() error {
 	return &Error{"c-error"}
+}
+
+func (C) valueMethodC() error {
+	return &Error{"c-value-error"}
 }
 
 // Unused, here to test that the correct methodA is found.
 func (*Y) methodA() error {
 	return &Error{"y-error"}
+}
+
+// Unused, here to test that the correct valueMethodA is found.
+func (Y) valueMethodA() error {
+	return &Error{"y-value-error"}
 }
 
 // Errors:
@@ -109,6 +131,13 @@ func (a *A) MethodCall() error { // want MethodCall:"ErrorCodes: a-error"
 //    - a-error --
 func (a A) IndirectMethodCall() error { // want IndirectMethodCall:"ErrorCodes: a-error"
 	return a.methodA()
+}
+
+// Errors:
+//
+//    - a-value-error --
+func (a *A) DereferencedMethodCall() error { // want DereferencedMethodCall:"ErrorCodes: a-value-error"
+	return a.valueMethodA()
 }
 
 // Errors:
@@ -141,6 +170,24 @@ func (d D) IndirectPromotedCall() error { // want IndirectPromotedCall:"ErrorCod
 		return d.methodB()
 	case true:
 		return d.methodC()
+	}
+	return nil
+}
+
+// Errors:
+//
+//    - a-value-error --
+//    - b-value-error --
+//    - c-value-error --
+func (d *D) DereferencedPromotedCall() error { // want DereferencedPromotedCall:"ErrorCodes: a-value-error b-value-error c-value-error"
+	switch {
+	case true:
+		return d.valueMethodA()
+	case true:
+		return d.valueMethodB()
+	case true:
+		return d.valueMethodC()
+
 	}
 	return nil
 }
