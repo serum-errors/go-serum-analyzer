@@ -171,7 +171,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			}
 		}
 		foundCodes = union(foundCodes, affectorCodes)
-		logf("trace found error codes: %v\n", foundCodes)
+		logf("Function %q: found error codes: %v\n", funcDecl.Name.Name, foundCodes)
 
 		missingCodes := difference(foundCodes, claimedCodes).slice()
 		unusedCodes := difference(claimedCodes, foundCodes).slice()
@@ -456,13 +456,14 @@ func findAffectors(pass *analysis.Pass, lookup funcLookup, expr ast.Expr, starti
 					if ok && len(methods) > 0 {
 						selection := pass.TypesInfo.Selections[funst]
 						// TODO: Use the MethodSet cache from typeutil
+						// TODO: Use typeutil intuitive method set maybe? Or otherwise catch indirect method calls
 						recvMethodSet := types.NewMethodSet(selection.Recv())
 						searchedMethodType := recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
 						if searchedMethodType != nil {
-							// Method we're looking for exists in the current package, we only need to find it
+							// Method we're looking for exists in the current package, we only need to find the right declaration
 							for _, method := range methods {
-								methodType := pass.TypesInfo.Defs[method.Name].Type()
-								if types.Identical(searchedMethodType.Type(), methodType) {
+								methodObj := pass.TypesInfo.ObjectOf(method.Name)
+								if searchedMethodType.Obj() == methodObj {
 									calledFunc = method
 									break
 								}
