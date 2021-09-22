@@ -149,7 +149,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 				continue
 			}
 
-			errorType, err := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
+			errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
 			if err != nil || errorType == nil {
 				pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
 			}
@@ -592,7 +592,7 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 
 // getErrorTypeForError gets the ErrorType for the given error from cache,
 // or on a cache miss computes said ErrorType and stores it in the cache.
-func getErrorTypeForError(pass *analysis.Pass, err types.Type) (*ErrorType, error) {
+func getErrorTypeForError(pass *analysis.Pass, lookup *funcLookup, err types.Type) (*ErrorType, error) {
 	namedErr := getNamedType(err)
 	if namedErr == nil {
 		logf("err type: %#v\n", err)
@@ -604,7 +604,7 @@ func getErrorTypeForError(pass *analysis.Pass, err types.Type) (*ErrorType, erro
 		return errorType, nil
 	}
 
-	funcDecl, receiver := getCodeFuncFromError(pass, err)
+	funcDecl, receiver := getCodeFuncFromError(pass, lookup, err)
 	if funcDecl == nil {
 		return nil, fmt.Errorf(`found no method "Code() string" for given error`)
 	}
@@ -760,37 +760,29 @@ func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) 
 //
 // The second result is the identifier which is the receiver of the method,
 // or nil if the receiver is unnamed.
-func getCodeFuncFromError(pass *analysis.Pass, err types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
-	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
+func getCodeFuncFromError(pass *analysis.Pass, lookup *funcLookup, err types.Type) (result *ast.FuncDecl, receiver *ast.Ident) {
+	// Use lookup struct to find correct Code() method
+	methods, ok := lookup.methods["Code"]
+	if !ok {
+		return nil, nil
 	}
 
-	// Search through all function declarations,
-	// to find the "Code() string" method of the given error type.
-	// Every branch exits with "return false" because we don't want too look into the function body here.
-	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
-		funcDecl := node.(*ast.FuncDecl)
-		if funcDecl.Recv == nil || funcDecl.Recv.List == nil ||
-			len(funcDecl.Recv.List) != 1 || funcDecl.Name.Name != "Code" {
-			return false
-		}
-
+	// Search through all methods named "Code" to find the right one for the given error type.
+	for _, funcDecl := range methods {
+		// funcDecl is guaranteed to have one receiver, because it is a method
 		receiverField := funcDecl.Recv.List[0]
 		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, err) {
-			return false
+			continue
 		}
 
 		if len(receiverField.Names) == 1 {
-			receiver = receiverField.Names[0]
+			return funcDecl, receiverField.Names[0]
 		}
 
-		result = funcDecl
-		return false
-	})
+		return funcDecl, nil
+	}
 
-	return
+	return nil, nil
 }
 
 // errorTypesSubset checks if type1 is a subset of type2.
