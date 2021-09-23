@@ -77,7 +77,7 @@ func Six(flip bool) error { // want Six:"ErrorCodes: hello-error zonk-error"
 //    - hello-error -- is always returned.
 func Seven() error {
 	uff := &Error{}
-	uff.TheCode = "hello-error" // want "assignment to fields of errors is currently not allowed"
+	uff.TheCode = "hello-error"
 	var err error
 	err = uff
 	return err
