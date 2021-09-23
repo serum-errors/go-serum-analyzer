@@ -221,7 +221,7 @@ func newFuncLookup() *funcLookup {
 
 // forEach traverses all the functions and methods in the lookup,
 // and applies the given function f to every ast.FuncDecl.
-func (lookup funcLookup) forEach(f func(*ast.FuncDecl)) {
+func (lookup *funcLookup) forEach(f func(*ast.FuncDecl)) {
 	for _, funcDecl := range lookup.functions {
 		f(funcDecl)
 	}
@@ -231,6 +231,44 @@ func (lookup funcLookup) forEach(f func(*ast.FuncDecl)) {
 			f(funcDecl)
 		}
 	}
+}
+
+// searchMethod tries to find the correct function declaration for a method given the receiver type and method name.
+func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type, methodName string) *ast.FuncDecl {
+	methods, ok := lookup.methods[methodName]
+	if !ok || len(methods) == 0 {
+		// Return early if there is no method in the current package with the given name
+		return nil
+	}
+
+	// Search for method in the type information using receiver type and method name
+	methodSet := lookup.methodSet.MethodSet(receiver)
+	searchedMethodType := methodSet.Lookup(pass.Pkg, methodName)
+
+	if searchedMethodType == nil {
+		// No methods were found for T
+		// Search methods for *T if T is not already a pointer.
+		_, ok := receiver.(*types.Pointer)
+		if !ok {
+			methodSet = lookup.methodSet.MethodSet(types.NewPointer(receiver))
+			searchedMethodType = methodSet.Lookup(pass.Pkg, methodName)
+		}
+	}
+
+	if searchedMethodType == nil {
+		// Return early if there is no method matching receiver and name
+		return nil
+	}
+
+	// Method we're looking for exists in the current package, we only need to find the right declaration
+	for _, method := range methods {
+		methodObj := pass.TypesInfo.ObjectOf(method.Name)
+		if searchedMethodType.Obj() == methodObj {
+			return method
+		}
+	}
+
+	return nil
 }
 
 // collectFunctions creates a funcLookup using the given analysis object.
@@ -459,32 +497,8 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, start
 
 					// This case is gonna be harder than functions: We need to figure out which function declaration applies,
 					// because there is no object information provided for methods calls.
-					methods, ok := lookup.methods[funst.Sel.Name]
-					if ok && len(methods) > 0 {
-						selection := pass.TypesInfo.Selections[funst]
-						recvMethodSet := lookup.methodSet.MethodSet(selection.Recv())
-						searchedMethodType := recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
-
-						// Search methods for *T if no methods were found for T and T is not already a pointer.
-						if searchedMethodType == nil {
-							_, ok := selection.Recv().(*types.Pointer)
-							if !ok {
-								recvMethodSet = lookup.methodSet.MethodSet(types.NewPointer(selection.Recv()))
-								searchedMethodType = recvMethodSet.Lookup(pass.Pkg, funst.Sel.Name)
-							}
-						}
-
-						if searchedMethodType != nil {
-							// Method we're looking for exists in the current package, we only need to find the right declaration
-							for _, method := range methods {
-								methodObj := pass.TypesInfo.ObjectOf(method.Name)
-								if searchedMethodType.Obj() == methodObj {
-									calledFunc = method
-									break
-								}
-							}
-						}
-					}
+					selection := pass.TypesInfo.Selections[funst]
+					calledFunc = lookup.searchMethod(pass, selection.Recv(), funst.Sel.Name)
 				default:
 					panic("Fun of an ast.CallExpr which is neither an ast.Ident nor an ast.SelectorExpr")
 				}
