@@ -290,10 +290,8 @@ func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast
 			}
 			return
 		}
-		logf("function %q returns an error interface (type name: %q)\n", funcDecl.Name.Name, typ)
 		funcsToAnalyse = append(funcsToAnalyse, funcDecl)
 	})
-	logf("%d functions in this package return errors and will be analysed.\n\n", len(funcsToAnalyse))
 
 	return funcsToAnalyse
 }
@@ -313,7 +311,6 @@ func findErrorDocs(funcDecl *ast.FuncDecl) (codeSet, error) {
 // So, it'll follow any number of assignment statements, for example;
 // as it does so, it'll totally disregarding logical branching,
 // instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
-//
 func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
 	switch exprt := expr.(type) {
 	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
@@ -345,6 +342,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 									panic("what?")
 								}
 							} else {
+								// TODO: Fix endless recursion occuring here (See IdentLoop() in recursion test)
 								result = append(result, findAffectorsInFunc(pass, stmt2.Rhs[i], within)...)
 							}
 						}

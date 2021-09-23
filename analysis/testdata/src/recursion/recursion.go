@@ -93,6 +93,19 @@ func inner3() error {
 	return &Error{"recursion-inner3-error"}
 }
 
+// IdentLoop does assignments in an attempt to make the analysis fall into an endless loop.
+//
+// Errors:
+//
+//    - some-error -- is always returned
+func IdentLoop() error { // want Shadowed:"ErrorCodes: named-error"
+	err1 := &Error{"some-error"}
+	err2 := err1
+	err3 := err2
+	err1 = err3
+	return err1
+}
+
 type Error struct {
 	TheCode string
 }
