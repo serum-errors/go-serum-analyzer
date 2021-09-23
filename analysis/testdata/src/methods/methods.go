@@ -192,6 +192,83 @@ func (d *D) DereferencedPromotedCall() error { // want DereferencedPromotedCall:
 	return nil
 }
 
+// Errors:
+//
+//    - a-error --
+//    - b-error --
+//    - c-error --
+//    - x-error --
+func FunctionCallingMethods(a *A, b B, d *D, x *X) error { // want FunctionCallingMethods:"ErrorCodes: a-error b-error c-error x-error"
+	switch {
+	case true:
+		return a.methodA()
+	case true:
+		return b.methodB()
+	case true:
+		return d.methodC()
+	case true:
+		return x.methodA()
+	}
+	return nil
+}
+
+// Errors:
+//
+//    - a-error --
+//    - b-error --
+//    - c-error --
+func ArrayMethodCall(ds []D) error { // want ArrayMethodCall:"ErrorCodes: a-error b-error c-error"
+	switch {
+	case true:
+		return ds[0].methodA()
+	case true:
+		return ds[1].methodB()
+	case true:
+		for _, d := range ds {
+			return d.methodC()
+		}
+	}
+	return nil
+}
+
+// Errors:
+//
+//    - a-error --
+func Struct(s *struct{ D D }) error { // want Struct:"ErrorCodes: a-error"
+	return s.D.methodA()
+}
+
+// Errors:
+//
+//    - c-error --
+func (d *D) MultipleResults() (*D, A, error) { // want MultipleResults:"ErrorCodes: c-error"
+	return d, d.A, d.methodC()
+}
+
+// Errors:
+//
+//    - a-error --
+//    - c-error --
+func CallMultipleResults(d *D) error { // want CallMultipleResults:"ErrorCodes: a-error c-error"
+	_, a, err := d.MultipleResults()
+	if err != nil {
+		return err
+	}
+
+	return a.methodA()
+}
+
+func (d *D) self() *D {
+	return d
+}
+
+// Errors:
+//
+//    - a-error --
+func (d *D) Chained() error { // want Chained:"ErrorCodes: a-error"
+	return d.self().self().self().self().methodA()
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
