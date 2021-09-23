@@ -305,11 +305,17 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 // So, it'll follow any number of assignment statements, for example;
 // as it does so, it'll totally disregarding logical branching,
 // instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
-func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl) (result []ast.Expr) {
+func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl, visited map[*ast.Ident]struct{}) (result []ast.Expr) {
 	switch exprt := expr.(type) {
 	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
 		return []ast.Expr{expr}
 	case *ast.Ident: // Lovely!  These are easy.  (Although likely to have significant taint spread.)
+		// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
+		if _, ok := visited[exprt]; ok {
+			return
+		}
+		visited[exprt] = struct{}{}
+
 		// Look for for `*ast.AssignStmt` in the function that could've affected this.
 		ast.Inspect(within, func(node ast.Node) bool {
 			// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
@@ -339,8 +345,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 								panic("what?")
 							}
 						} else {
-							// TODO: Fix endless recursion occuring here (See IdentLoop() in recursion test)
-							result = append(result, findAffectorsInFunc(pass, assignment.Rhs[i], within)...)
+							result = append(result, findAffectorsInFunc(pass, assignment.Rhs[i], within, visited)...)
 						}
 					}
 				case *ast.SelectorExpr:
@@ -422,7 +427,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, f
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
 func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
-	stepResults := findAffectorsInFunc(pass, expr, startingFunc)
+	stepResults := findAffectorsInFunc(pass, expr, startingFunc, map[*ast.Ident]struct{}{})
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
 		case *ast.CallExpr:
