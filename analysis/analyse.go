@@ -92,6 +92,11 @@ func isErrorCodeValid(code string) bool {
 	return true
 }
 
+// isMethod checks if funcDecl is a method by looking if it has a single receiver.
+func isMethod(funcDecl *ast.FuncDecl) bool {
+	return funcDecl != nil && funcDecl.Recv != nil && len(funcDecl.Recv.List) == 1
+}
+
 func runVerify(pass *analysis.Pass) (interface{}, error) {
 	lookup := collectFunctions(pass)
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
@@ -108,7 +113,17 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
 			continue
 		}
+
 		if len(codes) == 0 {
+			// Exclude Cause() methods of error types from having to declare error codes.
+			// If a Cause() method declares error codes, treat it like every other method.
+			if isMethod(funcDecl) {
+				receiverType := pass.TypesInfo.TypeOf(funcDecl.Recv.List[0].Type)
+				if types.Implements(receiverType, tReeErrorWithCause) {
+					continue
+				}
+			}
+
 			if funcDecl.Name.IsExported() {
 				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
 			}
@@ -197,6 +212,12 @@ var tError = types.NewInterfaceType([]*types.Func{
 var tReeError = types.NewInterfaceType([]*types.Func{
 	types.NewFunc(token.NoPos, nil, "Error", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
 	types.NewFunc(token.NoPos, nil, "Code", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Typ[types.String])), false)),
+}, nil).Complete()
+
+var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
+	tReeError.Method(0),
+	tReeError.Method(1),
+	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewNamed(types.NewTypeName(token.NoPos, nil, "error", tError), nil, nil))), false)),
 }, nil).Complete()
 
 // funcLookup allows the performant lookup of function and method declarations in the current package by name.
@@ -693,7 +714,7 @@ func getCodeFuncFromError(pass *analysis.Pass, lookup *funcLookup, err types.Typ
 	for _, funcDecl := range methods {
 		// funcDecl is guaranteed to have one receiver, because it is a method
 		receiverField := funcDecl.Recv.List[0]
-		if !errorTypesSubset(pass.TypesInfo.Types[receiverField.Type].Type, err) {
+		if !errorTypesSubset(pass.TypesInfo.TypeOf(receiverField.Type), err) {
 			continue
 		}
 

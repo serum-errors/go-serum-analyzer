@@ -84,7 +84,7 @@ func collectFunctions(pass *analysis.Pass) *funcLookup {
 		funcDecl := node.(*ast.FuncDecl)
 
 		// Check if it's a function or a method and add accordingly.
-		if funcDecl.Recv == nil || len(funcDecl.Recv.List) == 0 {
+		if !isMethod(funcDecl) {
 			result.functions[funcDecl.Name.Name] = funcDecl
 		} else {
 			result.methods[funcDecl.Name.Name] = append(result.methods[funcDecl.Name.Name], funcDecl)
