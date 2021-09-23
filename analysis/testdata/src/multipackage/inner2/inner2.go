@@ -16,6 +16,5 @@ type Error struct {
 func (e *Error) Code() string               { return e.TheCode }
 func (e *Error) Message() string            { return e.TheCode }
 func (e *Error) Details() map[string]string { return nil }
+func (e *Error) Cause() error               { return nil }
 func (e *Error) Error() string              { return e.Message() }
-
-// func (e *Error) Cause() error               { return nil }

@@ -67,6 +67,8 @@ func (f *ErrorCodeField) String() string {
 	return fmt.Sprintf("{Name:%q, Position:%d}", f.Name, f.Position)
 }
 
+type funcCodes map[*ast.FuncDecl]codeSet
+
 // isErrorCodeValid checks if the given error code is valid.
 // Valid error codes have to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$".
 func isErrorCodeValid(code string) bool {
@@ -101,50 +103,14 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	lookup := collectFunctions(pass)
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
-	// First output: warn directly about any functions that are exported
-	// if they return errors, but don't declare error codes in their docs.
-	// Also: because we have to do the whole parse for docstrings already,
-	// remember the error codes for the funcs that do have them:
-	// those are what we'll look at for the remaining analysis.
-	funcClaims := map[*ast.FuncDecl]codeSet{}
-	for _, funcDecl := range funcsToAnalyse {
-		codes, err := findErrorDocs(funcDecl)
-		if err != nil {
-			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
-			continue
-		}
-
-		if len(codes) == 0 {
-			// Exclude Cause() methods of error types from having to declare error codes.
-			// If a Cause() method declares error codes, treat it like every other method.
-			if isMethod(funcDecl) {
-				receiverType := pass.TypesInfo.TypeOf(funcDecl.Recv.List[0].Type)
-				if types.Implements(receiverType, tReeErrorWithCause) {
-					continue
-				}
-			}
-
-			if funcDecl.Name.IsExported() {
-				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
-			}
-		} else {
-			funcClaims[funcDecl] = codes
-		}
-	}
+	// Out of funcsToAnalyse get all functions that declare error codes and the actual codes they declare.
+	// In the remaining analysis we only look at the functions that declare error codes or get called by an analysed function.
+	funcClaims := findClaimedErrorCodes(pass, funcsToAnalyse)
 
 	// Export all claimed error codes as facts.
 	// Missing error code docs or unused ones will get reported in the respective functions,
 	// but on caller site only the documented behaviour matters.
-	for funcDecl, codeSet := range funcClaims {
-		fn, ok := pass.TypesInfo.Defs[funcDecl.Name].(*types.Func)
-		if !ok {
-			logf("Could not find definition for function %q!", funcDecl.Name.Name)
-			continue
-		}
-
-		fact := ErrorCodes{codeSet.slice()}
-		pass.ExportObjectFact(fn, &fact)
-	}
+	exportFunctionErrorCodes(pass, funcClaims)
 
 	// Okay -- let's look at the functions that have made claims about their error codes.
 	// We'll explore deeply to find everything that can actually affect their error return value.
@@ -153,53 +119,10 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Anything else is trouble.
 	for funcDecl, claimedCodes := range funcClaims {
 		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, lookup, funcDecl)
-		affectorCodes := set()
-		for _, affector := range affectOrigins {
-			// Make sure method "Code() string" is present
-			if !checkErrorTypeHasLegibleCode(pass, affector) {
-				pass.ReportRangef(affector, "expression does not define an error code")
-				continue
-			}
-
-			errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
-			if err != nil || errorType == nil {
-				pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
-			}
-			if err != nil {
-				logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
-			} else if errorType != nil {
-				if len(errorType.Codes) > 0 {
-					affectorCodes = union(affectorCodes, sliceToSet(errorType.Codes))
-				}
-
-				if errorType.Field != nil {
-					code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
-					if err == nil {
-						affectorCodes.add(code)
-					} else {
-						pass.ReportRangef(affector, "%v", err)
-					}
-				}
-			}
-		}
+		affectorCodes := extractErrorCodesFromAffectors(pass, lookup, funcDecl, affectOrigins)
 		foundCodes = union(foundCodes, affectorCodes)
 
-		missingCodes := difference(foundCodes, claimedCodes).slice()
-		unusedCodes := difference(claimedCodes, foundCodes).slice()
-		var errorMessages []string
-		if len(missingCodes) != 0 {
-			sort.Strings(missingCodes)
-			errorMessages = append(errorMessages, fmt.Sprintf("missing codes: %v", missingCodes))
-		}
-		if len(unusedCodes) != 0 {
-			sort.Strings(unusedCodes)
-			errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
-		}
-
-		if len(errorMessages) != 0 {
-			errorMessage := strings.Join(errorMessages, " ")
-			pass.Reportf(funcDecl.Pos(), "function %q has a mismatch of declared and actual error codes: %s", funcDecl.Name.Name, errorMessage)
-		}
+		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claimedCodes)
 	}
 
 	return nil, nil
@@ -263,11 +186,115 @@ func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast
 	return funcsToAnalyse
 }
 
+// findClaimedErrorCodes finds the error codes claimed by the given functions,
+// and emits diagnostics if a function does not claim error codes or
+// if the format of the docstring does not match the expected format.
+func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) funcCodes {
+	result := funcCodes{}
+	for _, funcDecl := range funcsToAnalyse {
+		codes, err := findErrorDocs(funcDecl)
+		if err != nil {
+			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
+			continue
+		}
+
+		if len(codes) == 0 {
+			// Exclude Cause() methods of error types from having to declare error codes.
+			// If a Cause() method declares error codes, treat it like every other method.
+			if isMethod(funcDecl) {
+				receiverType := pass.TypesInfo.TypeOf(funcDecl.Recv.List[0].Type)
+				if types.Implements(receiverType, tReeErrorWithCause) {
+					continue
+				}
+			}
+
+			// Warn directly about any functions that are exported if they return errors,
+			// but don't declare error codes in their docs.
+			if funcDecl.Name.IsExported() {
+				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
+			}
+		} else {
+			result[funcDecl] = codes
+		}
+	}
+
+	return result
+}
+
 func findErrorDocs(funcDecl *ast.FuncDecl) (codeSet, error) {
 	if funcDecl.Doc == nil {
 		return nil, nil
 	}
 	return findErrorDocsSM{}.run(funcDecl.Doc.Text())
+}
+
+// exportFunctionErrorCodes exports all codes for each function in the given map as facts.
+func exportFunctionErrorCodes(pass *analysis.Pass, codes funcCodes) {
+	for funcDecl, codeSet := range codes {
+		fn, ok := pass.TypesInfo.Defs[funcDecl.Name].(*types.Func)
+		if !ok {
+			logf("Could not find definition for function %q!", funcDecl.Name.Name)
+			continue
+		}
+
+		fact := ErrorCodes{codeSet.slice()}
+		pass.ExportObjectFact(fn, &fact)
+	}
+}
+
+// extractErrorCodesFromAffectors extracts all error codes from the given affectors and returns them.
+func extractErrorCodesFromAffectors(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affectors []ast.Expr) codeSet {
+	result := set()
+	for _, affector := range affectors {
+		// Make sure method "Code() string" is present
+		if !checkErrorTypeHasLegibleCode(pass, affector) {
+			pass.ReportRangef(affector, "expression does not define an error code")
+			continue
+		}
+
+		errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
+		if err != nil || errorType == nil {
+			pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
+		}
+		if err != nil {
+			logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
+		} else if errorType != nil {
+			if len(errorType.Codes) > 0 {
+				result = union(result, sliceToSet(errorType.Codes))
+			}
+
+			if errorType.Field != nil {
+				code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
+				if err == nil {
+					result.add(code)
+				} else {
+					pass.ReportRangef(affector, "%v", err)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
+func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes codeSet, claimedCodes codeSet) {
+	missingCodes := difference(foundCodes, claimedCodes).slice()
+	unusedCodes := difference(claimedCodes, foundCodes).slice()
+	var errorMessages []string
+	if len(missingCodes) != 0 {
+		sort.Strings(missingCodes)
+		errorMessages = append(errorMessages, fmt.Sprintf("missing codes: %v", missingCodes))
+	}
+	if len(unusedCodes) != 0 {
+		sort.Strings(unusedCodes)
+		errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
+	}
+
+	if len(errorMessages) != 0 {
+		errorMessage := strings.Join(errorMessages, " ")
+		pass.Reportf(funcDecl.Pos(), "function %q has a mismatch of declared and actual error codes: %s", funcDecl.Name.Name, errorMessage)
+	}
 }
 
 // findAffectorsInFunc looks up what can affect the given expression
