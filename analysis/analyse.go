@@ -115,10 +115,8 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			}
 		} else {
 			funcClaims[funcDecl] = codes
-			logf("function %q declares error codes %s\n", funcDecl.Name.Name, codes)
 		}
 	}
-	logf("%d functions in this package return errors and declared codes for them, and will be further analysed.\n\n", len(funcClaims))
 
 	// Export all claimed error codes as facts.
 	// Missing error code docs or unused ones will get reported in the respective functions,
@@ -171,7 +169,6 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			}
 		}
 		foundCodes = union(foundCodes, affectorCodes)
-		logf("Function %q: found error codes: %v\n", funcDecl.Name.Name, foundCodes)
 
 		missingCodes := difference(foundCodes, claimedCodes).slice()
 		unusedCodes := difference(claimedCodes, foundCodes).slice()
@@ -184,7 +181,6 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			sort.Strings(unusedCodes)
 			errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
 		}
-		logf("\n")
 
 		if len(errorMessages) != 0 {
 			errorMessage := strings.Join(errorMessages, " ")
@@ -357,36 +353,38 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 		// Look for for `*ast.AssignStmt` in the function that could've affected this.
 		ast.Inspect(within, func(node ast.Node) bool {
 			// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
-			switch stmt2 := node.(type) {
-			case *ast.AssignStmt:
-				// Look for our ident's object in the left-hand-side of the assign.
-				// Either follow up on the statement at the same index in the Rhs,
-				// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
-				for i, clause := range stmt2.Lhs {
-					switch clauset := clause.(type) {
-					case *ast.Ident:
-						if clauset.Obj == exprt.Obj {
-							if len(stmt2.Lhs) > len(stmt2.Rhs) {
-								// Destructuring mode.
-								// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
-								if i != len(stmt2.Lhs)-1 {
-									pass.ReportRangef(clauset, "unsupported: tracking error codes for function call with error as non-last return argument")
-									return false
-								}
-								// Because it's a CallExpr, we're done here: this is part of the result.
-								if stmt2, ok := stmt2.Rhs[0].(*ast.CallExpr); ok {
-									result = append(result, stmt2)
-								} else {
-									panic("what?")
-								}
-							} else {
-								// TODO: Fix endless recursion occuring here (See IdentLoop() in recursion test)
-								result = append(result, findAffectorsInFunc(pass, stmt2.Rhs[i], within)...)
+			assignment, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+
+			// Look for our ident's object in the left-hand-side of the assign.
+			// Either follow up on the statement at the same index in the Rhs,
+			// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
+			for i, clause := range assignment.Lhs {
+				switch clauset := clause.(type) {
+				case *ast.Ident:
+					if clauset.Obj == exprt.Obj {
+						if len(assignment.Lhs) > len(assignment.Rhs) {
+							// Destructuring mode.
+							// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+							if i != len(assignment.Lhs)-1 {
+								pass.ReportRangef(clauset, "unsupported: tracking error codes for function call with error as non-last return argument")
+								return false
 							}
+							// Because it's a CallExpr, we're done here: this is part of the result.
+							if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
+								result = append(result, callExpr)
+							} else {
+								panic("what?")
+							}
+						} else {
+							// TODO: Fix endless recursion occuring here (See IdentLoop() in recursion test)
+							result = append(result, findAffectorsInFunc(pass, assignment.Rhs[i], within)...)
 						}
-					case *ast.SelectorExpr:
-						logf("findAffectorsInFunc is looking at an assignment inside a value of interest?  fun\n")
 					}
+				case *ast.SelectorExpr:
+					// TODO: Implement assignment to fields of errors
 				}
 			}
 			return true
