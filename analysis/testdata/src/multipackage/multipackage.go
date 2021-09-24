@@ -52,6 +52,44 @@ func returnTrap() TrapType {
 	return TrapType{}
 }
 
+// Inner1Error returns an error from another package.
+//
+// Errors:
+//
+//    - inner1-error -- is always returned
+func Inner1Error() error { // want Inner1Error:"ErrorCodes: inner1-error"
+	return &inner1.Error{"inner1-error"}
+}
+
+// Inner2Error returns an error from another package.
+//
+// Errors:
+//
+//    - inner2-error -- is always returned
+func Inner2Error() error { // want Inner2Error:"ErrorCodes: inner2-error"
+	return &inner2.Error{"inner2-error"}
+}
+
+// Inner1UnusedError returns an error from another package,
+// which is not returned by any function in the inner package.
+//
+// Errors:
+//
+//    - inner1-unused-error -- is always returned
+func Inner1UnusedError() error { // want Inner1UnusedError:"ErrorCodes: inner1-unused-error"
+	return &inner1.UnusedError{"inner1-unused-error"}
+}
+
+// Inner2UnusedError returns an error from another package,
+// which is not returned by any function in the inner package.
+//
+// Errors:
+//
+//    - inner2-unused-error -- is always returned
+func Inner2UnusedError() error { // want Inner2UnusedError:"ErrorCodes: inner2-unused-error"
+	return &inner2.UnusedError{"inner2-unused-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

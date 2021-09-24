@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -101,6 +102,9 @@ func isMethod(funcDecl *ast.FuncDecl) bool {
 
 func runVerify(pass *analysis.Pass) (interface{}, error) {
 	lookup := collectFunctions(pass)
+
+	findAndTagErrorTypes(pass, lookup)
+
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
 	// Out of funcsToAnalyse get all functions that declare error codes and the actual codes they declare.
@@ -150,6 +154,69 @@ type funcLookup struct {
 	methodSet typeutil.MethodSetCache
 }
 
+// findAndTagErrorTypes finds all errors with a Code() method
+// and exports an ErrorType fact for all valid error types.
+func findAndTagErrorTypes(pass *analysis.Pass, lookup *funcLookup) {
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	// We only need to see type declarations.
+	nodeFilter := []ast.Node{
+		(*ast.GenDecl)(nil),
+	}
+
+	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
+		genDecl := node.(*ast.GenDecl)
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			typ := pass.TypesInfo.Defs[typeSpec.Name].Type()
+
+			// Filter out all types that are not errors with a Code() method.
+			if !types.Implements(typ, tReeError) {
+				typ = types.NewPointer(typ)
+				if !types.Implements(typ, tReeError) {
+					continue
+				}
+			}
+
+			// Export error type fact for error.
+			err := tagErrorType(pass, lookup, typ)
+			if err != nil {
+				pass.ReportRangef(node, "%v", err)
+			}
+		}
+
+		// Never recurse deeper.
+		return false
+	})
+}
+
+// tagErrorType exports an ErrorType fact for the given error if it's a valid error type.
+func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type) error {
+	namedErr := getNamedType(err)
+	if namedErr == nil {
+		logf("err type: %#v\n", err)
+		return fmt.Errorf("type is an invalid error type")
+	}
+
+	funcDecl, receiver := getCodeFuncFromError(pass, lookup, err)
+	if funcDecl == nil {
+		return fmt.Errorf(`found no method "Code() string"`)
+	}
+	errorType := analyseCodeMethod(pass, funcDecl, receiver)
+
+	if errorType == nil {
+		return fmt.Errorf("type %q is an invalid error type: could not find any error codes", namedErr.Obj().Name())
+	}
+
+	pass.ExportObjectFact(namedErr.Obj(), errorType)
+	return nil
+}
+
 // findErrorReturningFunctions looks for functions that return an error,
 // and emits a diagnostic if a function returns an error, but not as the last argument.
 func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast.FuncDecl {
@@ -169,11 +236,11 @@ func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast
 			return
 		}
 		lastResult := resultsList.List[len(resultsList.List)-1]
-		typ := pass.TypesInfo.Types[lastResult.Type].Type
+		typ := pass.TypesInfo.TypeOf(lastResult.Type)
 		if !types.Implements(typ, tError) {
 			// Emit diagnostic if an error is returned as non-last argument
 			for _, result := range resultsList.List {
-				typ := pass.TypesInfo.Types[result.Type].Type
+				typ := pass.TypesInfo.TypeOf(result.Type)
 				if types.Implements(typ, tError) {
 					pass.Reportf(result.Pos(), "error should be returned as the last argument")
 				}
@@ -356,7 +423,7 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 		})
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
-		if exprt.Op == token.AND && types.Implements(pass.TypesInfo.Types[expr].Type, tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
+		if exprt.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
 			return []ast.Expr{expr}
 		}
 
@@ -488,7 +555,7 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, start
 // on a type either returns a constant or a single struct field.
 // If you want to write your own ree.Error, it should be this simple.
 func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
-	typ := pass.TypesInfo.Types[seen].Type
+	typ := pass.TypesInfo.TypeOf(seen)
 	return types.Implements(typ, tReeError)
 }
 
@@ -579,17 +646,7 @@ func getErrorTypeForError(pass *analysis.Pass, lookup *funcLookup, err types.Typ
 		return errorType, nil
 	}
 
-	funcDecl, receiver := getCodeFuncFromError(pass, lookup, err)
-	if funcDecl == nil {
-		return nil, fmt.Errorf(`found no method "Code() string" for given error`)
-	}
-	errorType = analyseCodeMethod(pass, funcDecl, receiver)
-
-	if errorType != nil {
-		pass.ExportObjectFact(namedErr.Obj(), errorType)
-	}
-
-	return errorType, nil
+	return nil, nil
 }
 
 // getNamedType casts the given type to *types.Named if possible,

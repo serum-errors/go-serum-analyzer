@@ -128,12 +128,12 @@ type ValueTypeError2 struct{} // want ValueTypeError2:"ErrorType{Field:<nil>, Co
 func (e ValueTypeError2) Code() string  { return "value-2-error" }
 func (e ValueTypeError2) Error() string { return "ValueTypeError2" }
 
-type InvalidError struct{}
+type InvalidError struct{} // want `type "InvalidError" is an invalid error type: could not find any error codes`
 
 func (e *InvalidError) Code() string  { return "invalid error" } // want "error code has invalid format: should match .*"
 func (e *InvalidError) Error() string { return "InvalidError" }
 
-type InvalidError2 struct{ field1, field2 string }
+type InvalidError2 struct{ field1, field2 string } // want `type "InvalidError2" is an invalid error type: could not find any error codes`
 
 func (e *InvalidError2) Code() string  { return e.field1 + e.field2 } // want `function "Code" should always return a string constant or a single field`
 func (e *InvalidError2) Error() string { return "InvalidError2" }
@@ -193,7 +193,7 @@ type PromotedFieldError3 struct { // want PromotedFieldError3:`ErrorType{Field:{
 func (e *PromotedFieldError3) Code() string  { return e.errorCode }
 func (e *PromotedFieldError3) Error() string { return "PromotedFieldError3" }
 
-type InvalidPromotedFieldError struct{ Promoteable }
+type InvalidPromotedFieldError struct{ Promoteable } // want `type "InvalidPromotedFieldError" is an invalid error type: could not find any error codes`
 
 func (e *InvalidPromotedFieldError) Code() string  { return e.Some } // want `returned field "Some" is not a valid error code field \(promoted fields are not supported currently, but might be added in the future\)`
 func (e *InvalidPromotedFieldError) Error() string { return "InvalidPromotedFieldError" }
@@ -216,7 +216,7 @@ type ValidStringError string // want ValidStringError:`ErrorType{Field:<nil>, Co
 func (e ValidStringError) Code() string  { return "string-error" }
 func (e ValidStringError) Error() string { return "ValidStringError" }
 
-type InvalidStringError string
+type InvalidStringError string // want `type "InvalidStringError" is an invalid error type: could not find any error codes`
 
 func (e InvalidStringError) Code() string  { return string(e) } // want `function "Code" should always return a string constant or a single field`
 func (e InvalidStringError) Error() string { return "InvalidStringError" }
