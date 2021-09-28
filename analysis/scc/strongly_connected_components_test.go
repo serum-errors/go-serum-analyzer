@@ -22,29 +22,131 @@ type test struct {
 	found map[string]struct{}
 }
 
-func TestSCC(t *testing.T) {
-	tests := []test{
-		{
-			graph: map[string][]string{
-				"A": {"B", "C"},
-				"B": {"C", "D"},
-				"C": {"E"},
-				"D": {},
-				"E": {"B"},
-			},
-			result: map[string]int{
-				"A": 0,
-				"B": 1,
-				"C": 1,
-				"E": 1,
-				"D": 2,
-			},
+func TestSimpleGraph(t *testing.T) {
+	test := test{
+		graph: map[string][]string{
+			"A": {"B", "C"},
+			"B": {"C", "D"},
+			"C": {"E"},
+			"D": {},
+			"E": {"B"},
+		},
+		result: map[string]int{
+			"A": 0,
+			"B": 1,
+			"C": 1,
+			"E": 1,
+			"D": 2,
 		},
 	}
 
-	for _, test := range tests {
-		runSCCTest(test, t)
+	runSCCTest(test, t)
+}
+
+func TestNoCycles(t *testing.T) {
+	test := test{
+		graph: map[string][]string{
+			"A": {"B", "C"},
+			"B": {"F", "D"},
+			"C": {"E"},
+			"D": {},
+			"E": {"B"},
+			"F": {"D"},
+		},
+		result: map[string]int{
+			"A": 0,
+			"B": 1,
+			"C": 2,
+			"D": 3,
+			"E": 4,
+			"F": 5,
+		},
 	}
+
+	runSCCTest(test, t)
+}
+
+func TestMultipleRoots(t *testing.T) {
+	test := test{
+		graph: map[string][]string{
+			"A": {"B"},
+			"B": {"C"},
+			"C": {"A"},
+			"D": {"E"},
+			"E": {"F"},
+			"F": {"E"},
+			"G": {"H"},
+			"H": {},
+		},
+		result: map[string]int{
+			"A": 0,
+			"B": 0,
+			"C": 0,
+			"D": 1,
+			"E": 2,
+			"F": 2,
+			"G": 3,
+			"H": 4,
+		},
+	}
+
+	runSCCTest(test, t)
+}
+
+func TestDoubleCycle(t *testing.T) {
+	test := test{
+		graph: map[string][]string{
+			"A": {"B"},
+			"B": {"C"},
+			"C": {"D", "E"},
+			"D": {"B"},
+			"E": {"F"},
+			"F": {"A"},
+		},
+		result: map[string]int{
+			"A": 0,
+			"B": 0,
+			"C": 0,
+			"D": 0,
+			"E": 0,
+			"F": 0,
+		},
+	}
+
+	runSCCTest(test, t)
+}
+
+func TestAdvancedGraph(t *testing.T) {
+	test := test{
+		graph: map[string][]string{
+			"A": {"B"},
+			"B": {"C", "D"},
+			"C": {"A"},
+			"D": {"F", "E"},
+			"E": {"D"},
+			"F": {"G"},
+			"G": {"I", "H"},
+			"H": {"F", "I"},
+			"I": {"F"},
+			"J": {"K"},
+			"K": {"D", "J"},
+		},
+		result: map[string]int{
+			"A": 0,
+			"B": 0,
+			"C": 0,
+			"D": 1,
+			"E": 1,
+			"F": 2,
+			"G": 2,
+			"H": 2,
+			"I": 2,
+			"J": 3,
+			"K": 3,
+		},
+	}
+
+	runSCCTest(test, t)
 }
 
 func runSCCTest(test test, t *testing.T) {
