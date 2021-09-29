@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/warpfork/go-ree/analysis/scc"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -111,23 +112,27 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// In the remaining analysis we only look at the functions that declare error codes or get called by an analysed function.
 	funcClaims := findClaimedErrorCodes(pass, funcsToAnalyse)
 
-	// Export all claimed error codes as facts.
-	// Missing error code docs or unused ones will get reported in the respective functions,
-	// but on caller site only the documented behaviour matters.
-	exportFunctionErrorCodes(pass, funcClaims)
-
 	// Okay -- let's look at the functions that have made claims about their error codes.
 	// We'll explore deeply to find everything that can actually affect their error return value.
 	// When we reach data initialization... we look at if those types implement coded errors, and try to figure out what their actual code value is.
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
+	scc := scc.StartSCC() // SCC for handling of recursive functions
 	for funcDecl, claimedCodes := range funcClaims {
-		affectOrigins, foundCodes := findAffectorsOfErrorReturnInFunc(pass, lookup, funcDecl)
-		affectorCodes := extractErrorCodesFromAffectors(pass, lookup, funcDecl, affectOrigins)
-		foundCodes = union(foundCodes, affectorCodes)
+		analysisResult, ok := lookup.analysisResults[funcDecl]
+		if !ok {
+			analysisResult = findAffectorsOfErrorReturnInFunc(pass, lookup, scc, funcDecl)
+		}
+		affectorCodes := extractErrorCodesFromAffectors(pass, lookup, funcDecl, analysisResult.affectors)
+		foundCodes := union(analysisResult.codes, affectorCodes)
 
 		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claimedCodes)
 	}
+
+	// Export all claimed error codes as facts.
+	// Missing error code docs or unused ones will get reported in the respective functions,
+	// but on caller site only the documented behaviour matters.
+	exportFunctionErrorCodes(pass, funcClaims)
 
 	return nil, nil
 }
@@ -146,13 +151,6 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 	tReeError.Method(1),
 	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewNamed(types.NewTypeName(token.NoPos, nil, "error", tError), nil, nil))), false)),
 }, nil).Complete()
-
-// funcLookup allows the performant lookup of function and method declarations in the current package by name.
-type funcLookup struct {
-	functions map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
-	methods   map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
-	methodSet typeutil.MethodSetCache
-}
 
 // findAndTagErrorTypes finds all errors with a Code() method
 // and exports an ErrorType fact for all valid error types.
@@ -327,7 +325,7 @@ func extractErrorCodesFromAffectors(pass *analysis.Pass, lookup *funcLookup, fun
 			logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
 		} else if errorType != nil {
 			if len(errorType.Codes) > 0 {
-				result = union(result, sliceToSet(errorType.Codes))
+				result = unionInplace(result, sliceToSet(errorType.Codes))
 			}
 
 			if errorType.Field != nil {
@@ -438,7 +436,10 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 	return
 }
 
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State, funcDecl *ast.FuncDecl) funcAnalysisResult {
+	scc.Visit(funcDecl)
+	result := funcAnalysisResult{}
+
 	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -470,16 +471,62 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, f
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
-				newAffectors, newCodes := findAffectors(pass, lookup, resultExpression, funcDecl)
-				affectors = append(affectors, newAffectors...)
-				codes = union(codes, newCodes)
+				newAffectors, newCodes := findAffectors(pass, lookup, scc, resultExpression, funcDecl)
+				result.affectors = append(result.affectors, newAffectors...)
+				result.codes = unionInplace(result.codes, newCodes)
 			}
 
 			return false
 		}
 		return true
 	})
-	return
+
+	lookup.analysisResults[funcDecl] = result
+
+	isComponentRoot, component := scc.EndVisit(funcDecl)
+	if isComponentRoot {
+		return unifyAnalysisResultForComponent(lookup, component)
+	}
+
+	return result
+}
+
+// unifyAnalysisResultForComponent sets the analysis result of each function in the given component to a combined result,
+// containing all the error codes and affectors that result from the analysis of the individual functions.
+func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) funcAnalysisResult {
+	codes := set()
+	affectors := map[ast.Expr]struct{}{}
+
+	// Create unified result using all individual results of the functions in the component.
+	for _, element := range component {
+		funcDecl := element.(*ast.FuncDecl)
+		analysisResult := lookup.analysisResults[funcDecl]
+
+		// lookup.analysisResults[funcDecl] will be overwritten in the next step, so using unionInplace is fine.
+		codes = unionInplace(codes, analysisResult.codes)
+
+		// By using a set we prevent the occurence of multiple identical affectors.
+		for _, affector := range analysisResult.affectors {
+			affectors[affector] = struct{}{}
+		}
+	}
+
+	// Convert affectors set to slice.
+	// TODO: Remove code duplicates (see set_operations.go)
+	affectorsSlice := make([]ast.Expr, 0, len(affectors))
+	for value := range affectors {
+		affectorsSlice = append(affectorsSlice, value)
+	}
+
+	result := funcAnalysisResult{codes, affectorsSlice}
+
+	// Set the unified result to all functions in the component.
+	for _, element := range component {
+		funcDecl := element.(*ast.FuncDecl)
+		lookup.analysisResults[funcDecl] = result
+	}
+
+	return result
 }
 
 // findAffectors applies findAffectorsInFunc, and then _keeps going_...
@@ -493,7 +540,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, f
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc, map[*ast.Ident]struct{}{})
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -503,7 +550,7 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, start
 			callee := typeutil.Callee(pass.TypesInfo, exprt)
 			var fact ErrorCodes
 			if callee != nil && pass.ImportObjectFact(callee, &fact) {
-				codes = union(codes, sliceToSet(fact.Codes))
+				codes = unionInplace(codes, sliceToSet(fact.Codes))
 			} else {
 				var calledFunc *ast.FuncDecl
 
@@ -534,9 +581,19 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, expr ast.Expr, start
 				}
 
 				if calledFunc != nil {
-					newAffectors, newCodes := findAffectorsOfErrorReturnInFunc(pass, lookup, calledFunc)
-					affectors = append(affectors, newAffectors...)
-					codes = union(codes, newCodes)
+					var analysisResult funcAnalysisResult
+
+					shouldRecurse := scc.HandleEdge(startingFunc, calledFunc)
+					if shouldRecurse {
+						analysisResult = findAffectorsOfErrorReturnInFunc(pass, lookup, scc, calledFunc)
+						scc.AfterRecurse(startingFunc, calledFunc)
+					} else if cachedResult, ok := lookup.analysisResults[calledFunc]; ok {
+						analysisResult = cachedResult
+					}
+
+					// append and union can handle nil values.
+					affectors = append(affectors, analysisResult.affectors...)
+					codes = union(codes, analysisResult.codes)
 				} else {
 					// Could e.g. be a method which is defined in another package
 					pass.ReportRangef(exprt.Fun, "called function does not declare error codes")

@@ -1,6 +1,7 @@
 package scc
 
 type (
+	// State is contains all the state for one run of the strongly connected components (SCC) graph algorithm.
 	State interface {
 		aState() // Don't allow interface to be implemented outside of this package
 

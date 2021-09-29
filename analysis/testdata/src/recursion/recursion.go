@@ -6,7 +6,7 @@ package recursion
 // Errors:
 //
 //    - recursion-error -- is always returned
-func SimpleRecursion() error {
+func SimpleRecursion() error { // want SimpleRecursion:"ErrorCodes: recursion-error"
 	if false {
 		return SimpleRecursion()
 	}
@@ -19,7 +19,7 @@ func SimpleRecursion() error {
 // Errors:
 //
 //    - recursion-error -- is always returned
-func InnerRecursion() error {
+func InnerRecursion() error { // want InnerRecursion:"ErrorCodes: recursion-error"
 	return innerRecursion()
 }
 
@@ -38,7 +38,7 @@ func innerRecursion() error {
 //    - recursion-error       -- is always returned
 //    - recursion-part1-error --
 //    - recursion-part2-error --
-func IndirectRecursion() error {
+func IndirectRecursion() error { // want IndirectRecursion:"ErrorCodes: recursion-error recursion-part1-error recursion-part2-error"
 	if false {
 		return part1()
 	}
@@ -68,7 +68,7 @@ func part2() error {
 //    - recursion-inner1-error -- is always returned
 //    - recursion-inner2-error --
 //    - recursion-inner3-error --
-func IndirectInnerRecursion() error {
+func IndirectInnerRecursion() error { // want IndirectInnerRecursion:"ErrorCodes: recursion-inner1-error recursion-inner2-error recursion-inner3-error"
 	return inner1()
 }
 
@@ -93,7 +93,7 @@ func inner3() error {
 	return &Error{"recursion-inner3-error"}
 }
 
-type Error struct {
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 

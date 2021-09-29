@@ -10,12 +10,54 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
+// funcLookup allows the performant lookup of function and method declarations in the current package by name,
+// and the lookup of cached error codes and affectors for function declarations.
+type funcLookup struct {
+	functions       map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
+	methods         map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
+	methodSet       typeutil.MethodSetCache
+	analysisResults map[*ast.FuncDecl]funcAnalysisResult // Mapping Function Declarations to cached error codes and affectors
+}
+
+type funcAnalysisResult struct {
+	codes     codeSet
+	affectors []ast.Expr
+}
+
 func newFuncLookup() *funcLookup {
 	return &funcLookup{
 		map[string]*ast.FuncDecl{},
 		map[string][]*ast.FuncDecl{},
 		typeutil.MethodSetCache{},
+		map[*ast.FuncDecl]funcAnalysisResult{},
 	}
+}
+
+// collectFunctions creates a funcLookup using the given analysis object.
+func collectFunctions(pass *analysis.Pass) *funcLookup {
+	result := newFuncLookup()
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	// We only need to see function declarations at first; we'll recurse ourselves within there.
+	nodeFilter := []ast.Node{
+		(*ast.FuncDecl)(nil),
+	}
+
+	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
+		funcDecl := node.(*ast.FuncDecl)
+
+		// Check if it's a function or a method and add accordingly.
+		if !isMethod(funcDecl) {
+			result.functions[funcDecl.Name.Name] = funcDecl
+		} else {
+			result.methods[funcDecl.Name.Name] = append(result.methods[funcDecl.Name.Name], funcDecl)
+		}
+
+		// Never recurse into the function bodies
+		return false
+	})
+
+	return result
 }
 
 // forEach traverses all the functions and methods in the lookup,
@@ -68,31 +110,4 @@ func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type,
 	}
 
 	return nil
-}
-
-// collectFunctions creates a funcLookup using the given analysis object.
-func collectFunctions(pass *analysis.Pass) *funcLookup {
-	result := newFuncLookup()
-	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	// We only need to see function declarations at first; we'll recurse ourselves within there.
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-	}
-
-	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
-		funcDecl := node.(*ast.FuncDecl)
-
-		// Check if it's a function or a method and add accordingly.
-		if !isMethod(funcDecl) {
-			result.functions[funcDecl.Name.Name] = funcDecl
-		} else {
-			result.methods[funcDecl.Name.Name] = append(result.methods[funcDecl.Name.Name], funcDecl)
-		}
-
-		// Never recurse into the function bodies
-		return false
-	})
-
-	return result
 }

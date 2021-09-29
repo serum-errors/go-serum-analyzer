@@ -63,8 +63,7 @@ func TestSetAdd(t *testing.T) {
 		t.Errorf("expected %v got %v", expected, s)
 	}
 }
-
-func TestUnionDifference(t *testing.T) {
+func TestUnionAndDifference(t *testing.T) {
 	tests := []struct {
 		a, b, union, difference codeSet
 	}{
@@ -86,6 +85,10 @@ func TestUnionDifference(t *testing.T) {
 
 		if result := union(test.a, test.b); !reflect.DeepEqual(test.union, result) {
 			t.Errorf("union(%s) should be %v but was %v", params, test.union, result)
+		}
+
+		if result := unionInplace(test.a, test.b); !reflect.DeepEqual(test.union, result) {
+			t.Errorf("unionInplace(%s) should be %v but was %v", params, test.union, result)
 		}
 	}
 }
