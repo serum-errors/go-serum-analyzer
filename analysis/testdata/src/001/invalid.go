@@ -58,3 +58,47 @@ func invalidErrorCodeFormat() error {
 		return &Error{"hello-error"} // valid
 	}
 }
+
+// Errors:
+//
+//    - some-error --
+func InvalidErrorFromParameter(p error) error { // want InvalidErrorFromParameter:"ErrorCodes: some-error"
+	switch {
+	case true:
+		return p // want "returned error may not be a parameter, receiver or global variable"
+	case true:
+		x := p // want "returned error may not be a parameter, receiver or global variable"
+		return x
+	}
+	return &Error{"some-error"}
+}
+
+// Errors:
+//
+//    - some-error --
+func (e *Error) InvalidErrorFromReceiver() error { // want InvalidErrorFromReceiver:"ErrorCodes: some-error"
+	switch {
+	case true:
+		return e // want "returned error may not be a parameter, receiver or global variable"
+	case true:
+		x := e // want "returned error may not be a parameter, receiver or global variable"
+		return x
+	}
+	return &Error{"some-error"}
+}
+
+var globalError = &Error{"global-error"}
+
+// Errors:
+//
+//    - some-error --
+func InvalidErrorFromGlobal() error { // want InvalidErrorFromGlobal:"ErrorCodes: some-error"
+	switch {
+	case true:
+		return globalError // want "returned error may not be a parameter, receiver or global variable"
+	case true:
+		x := globalError // want "returned error may not be a parameter, receiver or global variable"
+		return x
+	}
+	return &Error{"some-error"}
+}

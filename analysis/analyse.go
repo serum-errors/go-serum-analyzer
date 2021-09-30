@@ -317,6 +317,19 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 		}
 		visited[exprt] = struct{}{}
 
+		// Check that the identifier is a local variable.
+		if exprt.Obj != nil {
+			withinPos := within.Body.Pos()
+			if within.Type.Results != nil {
+				// Results are allowed too, because named results may be declared there.
+				withinPos = within.Type.Results.Pos()
+			}
+
+			if exprt.Obj.Pos() <= withinPos || exprt.Obj.Pos() >= within.Body.End() {
+				pass.ReportRangef(exprt, "returned error may not be a parameter, receiver or global variable")
+			}
+		}
+
 		// Look for for `*ast.AssignStmt` in the function that could've affected this.
 		ast.Inspect(within, func(node ast.Node) bool {
 			// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
