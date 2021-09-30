@@ -44,7 +44,7 @@ func (set codeSet) add(value string) {
 // unionInplace returns a set containing all values that appear in either input set.
 // The input sets cannot be used afterwards as unionInplace works inplace.
 func unionInplace(set, other codeSet) codeSet {
-	// Make sure we add values from the smaller into the bigger set
+	// Make sure we add values from the smaller into the bigger set.
 	if len(set) < len(other) {
 		set, other = other, set
 	}

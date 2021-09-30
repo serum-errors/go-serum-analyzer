@@ -308,9 +308,9 @@ func exportFunctionErrorCodes(pass *analysis.Pass, codes funcCodes) {
 }
 
 // extractErrorCodesFromAffectors extracts all error codes from the given affectors and returns them.
-func extractErrorCodesFromAffectors(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affectors []ast.Expr) codeSet {
+func extractErrorCodesFromAffectors(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affectors map[ast.Expr]struct{}) codeSet {
 	result := set()
-	for _, affector := range affectors {
+	for affector := range affectors {
 		// Make sure method "Code() string" is present
 		if !checkErrorTypeHasLegibleCode(pass, affector) {
 			pass.ReportRangef(affector, "expression does not define an error code")
@@ -470,9 +470,8 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
-				newAffectors, newCodes := findAffectors(pass, lookup, scc, resultExpression, funcDecl)
-				result.affectors = append(result.affectors, newAffectors...)
-				result.codes = unionInplace(result.codes, newCodes)
+				analysisResult := findAffectors(pass, lookup, scc, resultExpression, funcDecl)
+				result.combineInplace(analysisResult)
 			}
 
 			return false
@@ -493,31 +492,16 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 // unifyAnalysisResultForComponent sets the analysis result of each function in the given component to a combined result,
 // containing all the error codes and affectors that result from the analysis of the individual functions.
 func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) funcAnalysisResult {
-	codes := set()
-	affectors := map[ast.Expr]struct{}{}
+	var result funcAnalysisResult
 
 	// Create unified result using all individual results of the functions in the component.
 	for _, element := range component {
 		funcDecl := element.(*ast.FuncDecl)
 		analysisResult := lookup.analysisResults[funcDecl]
 
-		// lookup.analysisResults[funcDecl] will be overwritten in the next step, so using unionInplace is fine.
-		codes = unionInplace(codes, analysisResult.codes)
-
-		// By using a set we prevent the occurence of multiple identical affectors.
-		for _, affector := range analysisResult.affectors {
-			affectors[affector] = struct{}{}
-		}
+		// lookup.analysisResults[funcDecl] will be overwritten in the next step, so using combineInplace is fine.
+		result.combineInplace(analysisResult)
 	}
-
-	// Convert affectors set to slice.
-	// TODO: Remove code duplicates (see set_operations.go)
-	affectorsSlice := make([]ast.Expr, 0, len(affectors))
-	for value := range affectors {
-		affectorsSlice = append(affectorsSlice, value)
-	}
-
-	result := funcAnalysisResult{codes, affectorsSlice}
 
 	// Set the unified result to all functions in the component.
 	for _, element := range component {
@@ -539,7 +523,8 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 //
 // For the first two: we're happy: we can analyse this func completely.
 // Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr ast.Expr, startingFunc *ast.FuncDecl) (affectors []ast.Expr, codes codeSet) {
+func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr ast.Expr, startingFunc *ast.FuncDecl) funcAnalysisResult {
+	var result funcAnalysisResult
 	stepResults := findAffectorsInFunc(pass, expr, startingFunc, map[*ast.Ident]struct{}{})
 	for _, x := range stepResults {
 		switch exprt := x.(type) {
@@ -549,7 +534,7 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr 
 			callee := typeutil.Callee(pass.TypesInfo, exprt)
 			var fact ErrorCodes
 			if callee != nil && pass.ImportObjectFact(callee, &fact) {
-				codes = unionInplace(codes, sliceToSet(fact.Codes))
+				result.codes = unionInplace(result.codes, sliceToSet(fact.Codes))
 			} else {
 				var calledFunc *ast.FuncDecl
 
@@ -559,7 +544,7 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr 
 					case *ast.FuncDecl: // Noramal function call
 						calledFunc = funcDecl
 					case *ast.TypeSpec: // Type conversion
-						affectors = append(affectors, exprt)
+						result.addAffector(exprt)
 						continue
 					}
 				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
@@ -590,21 +575,21 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr 
 						analysisResult = cachedResult
 					}
 
-					// append and union can handle nil values.
-					affectors = append(affectors, analysisResult.affectors...)
-					codes = union(codes, analysisResult.codes)
+					// combine can handle nil values.
+					result = result.combine(analysisResult)
 				} else {
 					// Could e.g. be a method which is defined in another package
 					pass.ReportRangef(exprt.Fun, "called function does not declare error codes")
 				}
 			}
 		case *ast.CompositeLit, *ast.BasicLit:
-			affectors = append(affectors, x)
+			result.addAffector(x)
 		default:
-			affectors = append(affectors, x)
+			result.addAffector(x)
 		}
 	}
-	return
+
+	return result
 }
 
 // checkErrorTypeHasLegibleCode makes sure that the `Code() string` function
