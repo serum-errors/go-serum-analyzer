@@ -306,16 +306,18 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 // So, it'll follow any number of assignment statements, for example;
 // as it does so, it'll totally disregarding logical branching,
 // instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
-func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl, visited map[*ast.Ident]struct{}) (result []ast.Expr) {
+func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl, visited map[*ast.Ident]struct{}) []ast.Expr {
 	switch exprt := expr.(type) {
 	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
 		return []ast.Expr{expr}
 	case *ast.Ident: // Lovely!  These are easy.  (Although likely to have significant taint spread.)
 		// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
 		if _, ok := visited[exprt]; ok {
-			return
+			return nil
 		}
 		visited[exprt] = struct{}{}
+
+		var result []ast.Expr
 
 		// Check that the identifier is a local variable.
 		if exprt.Obj != nil {
@@ -368,10 +370,16 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 			}
 			return true
 		})
+
+		return result
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
 		if exprt.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
-			return []ast.Expr{expr}
+			if ident, ok := exprt.X.(*ast.Ident); ok {
+				return findAffectorsInFunc(pass, ident, within, visited)
+			} else {
+				return []ast.Expr{expr}
+			}
 		}
 
 		// If it's not fulfilling the error interface it's not supported
@@ -381,8 +389,8 @@ func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDec
 		return []ast.Expr{expr}
 	default:
 		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
+		return nil
 	}
-	return
 }
 
 func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State, funcDecl *ast.FuncDecl) funcAnalysisResult {
@@ -546,7 +554,7 @@ func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr 
 // If you want to write your own ree.Error, it should be this simple.
 func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
 	typ := pass.TypesInfo.TypeOf(seen)
-	return types.Implements(typ, tReeError)
+	return types.Implements(typ, tReeError) || types.Implements(types.NewPointer(typ), tReeError)
 }
 
 // extractFieldErrorCodes finds a possible error code from the given constructor expression.

@@ -132,6 +132,20 @@ func IdentLoop() error { // want IdentLoop:"ErrorCodes: some-error"
 	return err1
 }
 
+// PointerOfLocal returns a pointer to a locally created error.
+//
+// Errors:
+//
+//    - value-error -- is always returned
+func PointerOfLocal() error { // want PointerOfLocal:"ErrorCodes: value-error"
+	err := Error{"value-error"}
+	if false {
+		err2 := &err
+		return err2
+	}
+	return &err
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
