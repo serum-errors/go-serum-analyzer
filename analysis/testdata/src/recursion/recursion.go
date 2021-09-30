@@ -93,6 +93,134 @@ func inner3() error {
 	return &Error{"recursion-inner3-error"}
 }
 
+// Errors:
+//
+//    - advanced-a-error -- is always returned
+//    - advanced-c-error --
+//    - advanced-d-error --
+//    - advanced-e-error --
+//    - advanced-f-error --
+//    - advanced-g-error --
+func AdvancedRecursionA() error { // want AdvancedRecursionA:"ErrorCodes: advanced-a-error advanced-c-error advanced-d-error advanced-e-error advanced-f-error advanced-g-error"
+	if false {
+		return advancedRecursionC()
+	}
+	return &Error{"advanced-a-error"}
+}
+
+// Errors:
+//
+//    - advanced-b-error -- is always returned
+//    - advanced-c-error --
+//    - advanced-d-error --
+//    - advanced-e-error --
+//    - advanced-f-error --
+//    - advanced-g-error --
+func AdvancedRecursionB() error { // want AdvancedRecursionB:"ErrorCodes: advanced-b-error advanced-c-error advanced-d-error advanced-e-error advanced-f-error advanced-g-error"
+	if false {
+		return advancedRecursionD()
+	}
+	return &Error{"advanced-b-error"}
+}
+
+func advancedRecursionC() error {
+	switch {
+	case true:
+		return advancedRecursionC()
+	case true:
+		return advancedRecursionD()
+	case true:
+		return advancedRecursionE()
+	}
+	return &Error{"advanced-c-error"}
+}
+
+func advancedRecursionD() error {
+	if false {
+		return advancedRecursionC()
+	}
+	return &Error{"advanced-d-error"}
+}
+
+func advancedRecursionE() error {
+	if false {
+		return advancedRecursionF()
+	}
+	return &Error{"advanced-e-error"}
+}
+
+func advancedRecursionF() error {
+	if false {
+		return advancedRecursionG()
+	}
+	return &Error{"advanced-f-error"}
+}
+
+func advancedRecursionG() error {
+	if false {
+		return advancedRecursionE()
+	}
+	return &Error{"advanced-g-error"}
+}
+
+// Errors:
+//
+//    - advanced-h-error -- is always returned
+//    - advanced-e-error --
+//    - advanced-f-error --
+//    - advanced-g-error --
+func AdvancedRecursionH() error { // want AdvancedRecursionH:"ErrorCodes: advanced-e-error advanced-f-error advanced-g-error advanced-h-error"
+	if false {
+		return advancedRecursionG()
+	}
+	return &Error{"advanced-h-error"}
+}
+
+// Errors:
+//
+//    - splitmerge-a-error --
+//    - splitmerge-b-error --
+//    - splitmerge-c-error --
+//    - splitmerge-d-error --
+//    - splitmerge-e-error --
+func SplitMergeA() error { // want SplitMergeA:"ErrorCodes: splitmerge-a-error splitmerge-b-error splitmerge-c-error splitmerge-d-error splitmerge-e-error"
+	switch {
+	case true:
+		return splitMergeB()
+	case true:
+		return splitMergeC()
+	}
+	return &Error{"splitmerge-a-error"}
+}
+
+func splitMergeB() error {
+	if false {
+		return splitMergeD()
+	}
+	return &Error{"splitmerge-b-error"}
+}
+
+func splitMergeC() error {
+	if false {
+		return splitMergeD()
+	}
+	return &Error{"splitmerge-c-error"}
+}
+
+func splitMergeD() error {
+	if false {
+		return splitMergeE()
+	}
+	return &Error{"splitmerge-d-error"}
+}
+
+func splitMergeE() error {
+	if false {
+		return splitMergeD()
+	}
+	return &Error{"splitmerge-e-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
