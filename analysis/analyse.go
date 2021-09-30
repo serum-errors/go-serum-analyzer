@@ -182,7 +182,7 @@ func findAndTagErrorTypes(pass *analysis.Pass, lookup *funcLookup) {
 			}
 
 			// Export error type fact for error.
-			err := tagErrorType(pass, lookup, typ)
+			err := tagErrorType(pass, lookup, typ, typeSpec)
 			if err != nil {
 				pass.ReportRangef(node, "%v", err)
 			}
@@ -194,7 +194,7 @@ func findAndTagErrorTypes(pass *analysis.Pass, lookup *funcLookup) {
 }
 
 // tagErrorType exports an ErrorType fact for the given error if it's a valid error type.
-func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type) error {
+func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type, spec *ast.TypeSpec) error {
 	namedErr := getNamedType(err)
 	if namedErr == nil {
 		logf("err type: %#v\n", err)
@@ -205,7 +205,7 @@ func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type) error
 	if funcDecl == nil {
 		return fmt.Errorf(`found no method "Code() string"`)
 	}
-	errorType := analyseCodeMethod(pass, funcDecl, receiver)
+	errorType := analyseCodeMethod(pass, spec, funcDecl, receiver)
 
 	if errorType == nil {
 		return fmt.Errorf("type %q is an invalid error type: could not find any error codes", namedErr.Obj().Name())
@@ -440,7 +440,6 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 	scc.Visit(funcDecl)
 	result := funcAnalysisResult{}
 
-	// TODO this should probably be approximately a good point for memoization?
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
 		case *ast.FuncLit:
@@ -734,9 +733,9 @@ func getNamedType(typ types.Type) *types.Named {
 //         Position needed for tracking creation with a constructor
 //         Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
-func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
+func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
 	constants := set()
-	var fieldName string
+	var fieldName *ast.Ident
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
@@ -762,17 +761,16 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
 			// Otherwise check if a single field is returned.
 			// Make sure that always the same field is returned and otherwise emit a diagnostic.
-			if receiver != nil {
-				expression, ok := node.Results[0].(*ast.SelectorExpr)
-				if ok {
-					if ident, ok := expression.X.(*ast.Ident); ok && ident.Obj == receiver.Obj {
-						if fieldName == "" {
-							fieldName = expression.Sel.Name
-						} else if fieldName != expression.Sel.Name {
-							pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName)
-						}
-						return false
+			expression, ok := node.Results[0].(*ast.SelectorExpr)
+			if ok && receiver != nil {
+				ident, ok := expression.X.(*ast.Ident)
+				if ok && ident.Obj == receiver.Obj {
+					if fieldName == nil {
+						fieldName = expression.Sel
+					} else if fieldName.Name != expression.Sel.Name {
+						pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName.Name)
 					}
+					return false
 				}
 			}
 
@@ -782,10 +780,10 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 	})
 
 	var field *ErrorCodeField
-	if fieldName != "" && receiver != nil {
-		position := getFieldPositionUsingMethodReceiver(receiver, fieldName)
+	if fieldName != nil {
+		position := getFieldPosition(spec, fieldName)
 		if position >= 0 {
-			field = &ErrorCodeField{fieldName, position}
+			field = &ErrorCodeField{fieldName.Name, position}
 		} else {
 			pass.Reportf(funcDecl.Pos(), "returned field %q is not a valid error code field (promoted fields are not supported currently, but might be added in the future)", fieldName)
 		}
@@ -801,27 +799,8 @@ func analyseCodeMethod(pass *analysis.Pass, funcDecl *ast.FuncDecl, receiver *as
 	return &ErrorType{Codes: constants.slice(), Field: field}
 }
 
-// getFieldPositionUsingMethodReceiver get the position of the given field in the error struct.
-// The receiver is used to dig up the error type definition.
-// TODO: Clean up the panics and implement proper error handling.
-func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) int {
-	receiverType := receiver.Obj.Decl.(*ast.Field).Type
-	starExpr, ok := receiverType.(*ast.StarExpr)
-	if !ok {
-		// TODO: Figure out how this is done if it is not a StarExpr
-		panic("not a *ast.StarExpr")
-	}
-
-	errorTypeIdent, ok := starExpr.X.(*ast.Ident)
-	if !ok || errorTypeIdent.Obj == nil || errorTypeIdent.Obj.Kind != ast.Typ {
-		panic("can this happen?")
-	}
-
-	errorTypeSpec, ok := errorTypeIdent.Obj.Decl.(*ast.TypeSpec)
-	if !ok {
-		panic("can this happen?")
-	}
-
+// getFieldPosition gets the position of the given field in the error struct.
+func getFieldPosition(errorTypeSpec *ast.TypeSpec, fieldName *ast.Ident) int {
 	errorType, ok := errorTypeSpec.Type.(*ast.StructType)
 	if !ok || errorType.Fields.List == nil {
 		return -1
@@ -835,7 +814,7 @@ func getFieldPositionUsingMethodReceiver(receiver *ast.Ident, fieldName string) 
 		}
 
 		for _, name := range field.Names {
-			if name.Name == fieldName {
+			if name.Name == fieldName.Name {
 				return i
 			}
 			i++
