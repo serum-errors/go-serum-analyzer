@@ -118,12 +118,10 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Anything else is trouble.
 	scc := scc.StartSCC() // SCC for handling of recursive functions
 	for funcDecl, claimedCodes := range funcClaims {
-		analysisResult, ok := lookup.analysisResults[funcDecl]
+		foundCodes, ok := lookup.foundCodes[funcDecl]
 		if !ok {
-			analysisResult = findAffectorsOfErrorReturnInFunc(pass, lookup, scc, funcDecl)
+			foundCodes = findErrorCodesInFunc(pass, lookup, scc, funcDecl)
 		}
-		affectorCodes := extractErrorCodesFromAffectors(pass, lookup, funcDecl, analysisResult.affectors)
-		foundCodes := union(analysisResult.codes, affectorCodes)
 
 		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claimedCodes)
 	}
@@ -243,34 +241,33 @@ func exportFunctionErrorCodes(pass *analysis.Pass, codes funcCodes) {
 	}
 }
 
-// extractErrorCodesFromAffectors extracts all error codes from the given affectors and returns them.
-func extractErrorCodesFromAffectors(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affectors map[ast.Expr]struct{}) codeSet {
+// extractErrorCodesFromAffector extracts all error codes from the given affectors and returns them.
+func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affector ast.Expr) codeSet {
 	result := set()
-	for affector := range affectors {
-		// Make sure method "Code() string" is present
-		if !checkErrorTypeHasLegibleCode(pass, affector) {
-			pass.ReportRangef(affector, "expression does not define an error code")
-			continue
+
+	// Make sure method "Code() string" is present
+	if !checkErrorTypeHasLegibleCode(pass, affector) {
+		pass.ReportRangef(affector, "expression does not define an error code")
+		return result
+	}
+
+	errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
+	if err != nil || errorType == nil {
+		pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
+	}
+	if err != nil {
+		logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
+	} else if errorType != nil {
+		if len(errorType.Codes) > 0 {
+			result = union(result, sliceToSet(errorType.Codes))
 		}
 
-		errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
-		if err != nil || errorType == nil {
-			pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
-		}
-		if err != nil {
-			logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
-		} else if errorType != nil {
-			if len(errorType.Codes) > 0 {
-				result = unionInplace(result, sliceToSet(errorType.Codes))
-			}
-
-			if errorType.Field != nil {
-				code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
-				if err == nil {
-					result.add(code)
-				} else {
-					pass.ReportRangef(affector, "%v", err)
-				}
+		if errorType.Field != nil {
+			code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
+			if err == nil {
+				result.add(code)
+			} else {
+				pass.ReportRangef(affector, "%v", err)
 			}
 		}
 	}
@@ -298,104 +295,12 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 	}
 }
 
-// findAffectorsInFunc looks up what can affect the given expression
-// (which, generally, can be anything you'd expect to see in a ReturnStmt -- so, variables, unaryExpr, a bunch of things...),
-// and recurses in this until it hits either the creation of a value,
-// or function call boundaries (`*ast.CallExpr`).
-//
-// So, it'll follow any number of assignment statements, for example;
-// as it does so, it'll totally disregarding logical branching,
-// instead using a very basic model of taint: just marking anything that can ever possibly touch the variable.
-func findAffectorsInFunc(pass *analysis.Pass, expr ast.Expr, within *ast.FuncDecl, visited map[*ast.Ident]struct{}) []ast.Expr {
-	switch exprt := expr.(type) {
-	case *ast.CallExpr: // These are a boundary condition, so that's short and sweet.
-		return []ast.Expr{expr}
-	case *ast.Ident: // Lovely!  These are easy.  (Although likely to have significant taint spread.)
-		// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
-		if _, ok := visited[exprt]; ok {
-			return nil
-		}
-		visited[exprt] = struct{}{}
-
-		var result []ast.Expr
-
-		// Check that the identifier is a local variable.
-		if exprt.Obj != nil {
-			withinPos := within.Body.Pos()
-			if within.Type.Results != nil {
-				// Results are allowed too, because named results may be declared there.
-				withinPos = within.Type.Results.Pos()
-			}
-
-			if exprt.Obj.Pos() <= withinPos || exprt.Obj.Pos() >= within.Body.End() {
-				pass.ReportRangef(exprt, "returned error may not be a parameter, receiver or global variable")
-			}
-		}
-
-		// Look for for `*ast.AssignStmt` in the function that could've affected this.
-		ast.Inspect(within, func(node ast.Node) bool {
-			// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
-			assignment, ok := node.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-
-			// Look for our ident's object in the left-hand-side of the assign.
-			// Either follow up on the statement at the same index in the Rhs,
-			// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
-			for i, clause := range assignment.Lhs {
-				switch clauset := clause.(type) {
-				case *ast.Ident:
-					if clauset.Obj == exprt.Obj {
-						if len(assignment.Lhs) > len(assignment.Rhs) {
-							// Destructuring mode.
-							// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
-							if i != len(assignment.Lhs)-1 {
-								pass.ReportRangef(clauset, "unsupported: tracking error codes for function call with error as non-last return argument")
-								return false
-							}
-							// Because it's a CallExpr, we're done here: this is part of the result.
-							if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
-								result = append(result, callExpr)
-							} else {
-								panic("what?")
-							}
-						} else {
-							result = append(result, findAffectorsInFunc(pass, assignment.Rhs[i], within, visited)...)
-						}
-					}
-				case *ast.SelectorExpr:
-					// TODO: Implement assignment to fields of errors
-				}
-			}
-			return true
-		})
-
-		return result
-	case *ast.UnaryExpr:
-		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
-		if exprt.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
-			if ident, ok := exprt.X.(*ast.Ident); ok {
-				return findAffectorsInFunc(pass, ident, within, visited)
-			} else {
-				return []ast.Expr{expr}
-			}
-		}
-
-		// If it's not fulfilling the error interface it's not supported
-		pass.ReportRangef(exprt, "expression does not implement valid error type")
-		return nil
-	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
-		return []ast.Expr{expr}
-	default:
-		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
-		return nil
-	}
-}
-
-func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State, funcDecl *ast.FuncDecl) funcAnalysisResult {
+// findErrorCodesInFunc finds error codes that are returned by the given function.
+// The result is also stored in the foundCodes cache of the given funcLookup.
+func findErrorCodesInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State, funcDecl *ast.FuncDecl) codeSet {
 	scc.Visit(funcDecl)
-	result := funcAnalysisResult{}
+	result := set()
+	visitedIdents := map[*ast.Ident]struct{}{}
 
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch stmt := node.(type) {
@@ -427,8 +332,8 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
-				analysisResult := findAffectors(pass, lookup, scc, resultExpression, funcDecl)
-				result.combineInplace(analysisResult)
+				newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, resultExpression, funcDecl)
+				result = union(result, newCodes)
 			}
 
 			return false
@@ -436,7 +341,7 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 		return true
 	})
 
-	lookup.analysisResults[funcDecl] = result
+	lookup.foundCodes[funcDecl] = result
 
 	isComponentRoot, component := scc.EndVisit(funcDecl)
 	if isComponentRoot {
@@ -448,103 +353,183 @@ func findAffectorsOfErrorReturnInFunc(pass *analysis.Pass, lookup *funcLookup, s
 
 // unifyAnalysisResultForComponent sets the analysis result of each function in the given component to a combined result,
 // containing all the error codes and affectors that result from the analysis of the individual functions.
-func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) funcAnalysisResult {
-	var result funcAnalysisResult
+func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) codeSet {
+	result := set()
 
 	// Create unified result using all individual results of the functions in the component.
 	for _, element := range component {
 		funcDecl := element.(*ast.FuncDecl)
-		analysisResult := lookup.analysisResults[funcDecl]
+		codes := lookup.foundCodes[funcDecl]
 
 		// lookup.analysisResults[funcDecl] will be overwritten in the next step, so using combineInplace is fine.
-		result.combineInplace(analysisResult)
+		result = union(result, codes)
 	}
 
 	// Set the unified result to all functions in the component.
 	for _, element := range component {
 		funcDecl := element.(*ast.FuncDecl)
-		lookup.analysisResults[funcDecl] = result
+		lookup.foundCodes[funcDecl] = result
 	}
 
 	return result
 }
 
-// findAffectors applies findAffectorsInFunc, and then _keeps going_...
-// until it's resolved everything into one of:
-//  - value creation,
-//  - a CallExpr that targets another function that has declared error codes (yay!),
-//  - a CallExpr that crosses package boundaries,
-//  - a CallExpr that's an interface (we can't really look deeper than that),
-//  - a CallExpr it's seen before,
-//  - ... I think that's it?
-//
-// For the first two: we're happy: we can analyse this func completely.
-// Encountering any of the others means we've found a source of unknowns.
-func findAffectors(pass *analysis.Pass, lookup *funcLookup, scc scc.State, expr ast.Expr, startingFunc *ast.FuncDecl) funcAnalysisResult {
-	var result funcAnalysisResult
-	stepResults := findAffectorsInFunc(pass, expr, startingFunc, map[*ast.Ident]struct{}{})
-	for _, x := range stepResults {
-		switch exprt := x.(type) {
-		case *ast.CallExpr:
-			// For a CallExpr we first look if the error codes are already computed and stored as a fact.
-			// If so we use those, otherwise we try to recurse and compute error codes for that function.
-			callee := typeutil.Callee(pass.TypesInfo, exprt)
-			var fact ErrorCodes
-			if callee != nil && pass.ImportObjectFact(callee, &fact) {
-				result.codes = unionInplace(result.codes, sliceToSet(fact.Codes))
+// findErrorCodesInExpression finds all error codes that originate from the given expression.
+func findErrorCodesInExpression(pass *analysis.Pass, lookup *funcLookup, scc scc.State, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *ast.FuncDecl) codeSet {
+	switch expr := expr.(type) {
+	case *ast.CallExpr:
+		return findErrorCodesInCallExpression(pass, lookup, scc, expr, startingFunc)
+	case *ast.Ident:
+		return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, expr, startingFunc)
+	case *ast.UnaryExpr:
+		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
+		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
+			if ident, ok := expr.X.(*ast.Ident); ok {
+				return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, ident, startingFunc)
 			} else {
-				var calledFunc *ast.FuncDecl
-
-				switch funst := exprt.Fun.(type) {
-				case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
-					switch funcDecl := funst.Obj.Decl.(type) {
-					case *ast.FuncDecl: // Noramal function call
-						calledFunc = funcDecl
-					case *ast.TypeSpec: // Type conversion
-						result.addAffector(exprt)
-						continue
-					}
-				case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
-					if target, ok := funst.X.(*ast.Ident); ok {
-						if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
-							// We're calling a function in a package that does not have declared error codes
-							pass.ReportRangef(funst, "function %q in package %q does not declare error codes", funst.Sel.Name, obj.Imported().Name())
-							continue
-						}
-					}
-
-					// This case is gonna be harder than functions: We need to figure out which function declaration applies,
-					// because there is no object information provided for methods calls.
-					selection := pass.TypesInfo.Selections[funst]
-					calledFunc = lookup.searchMethod(pass, selection.Recv(), funst.Sel.Name)
-				default:
-					panic("Fun of an ast.CallExpr which is neither an ast.Ident nor an ast.SelectorExpr")
-				}
-
-				if calledFunc != nil {
-					var analysisResult funcAnalysisResult
-
-					shouldRecurse := scc.HandleEdge(startingFunc, calledFunc)
-					if shouldRecurse {
-						analysisResult = findAffectorsOfErrorReturnInFunc(pass, lookup, scc, calledFunc)
-						scc.AfterRecurse(startingFunc, calledFunc)
-					} else if cachedResult, ok := lookup.analysisResults[calledFunc]; ok {
-						analysisResult = cachedResult
-					}
-
-					// combine can handle nil values.
-					result = result.combine(analysisResult)
-				} else {
-					// Could e.g. be a method which is defined in another package
-					pass.ReportRangef(exprt.Fun, "called function does not declare error codes")
-				}
+				return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 			}
-		case *ast.CompositeLit, *ast.BasicLit:
-			result.addAffector(x)
-		default:
-			result.addAffector(x)
+		}
+
+		// If it's not fulfilling the error interface it's not supported
+		pass.ReportRangef(expr, "expression does not implement valid error type")
+		return nil
+	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
+		return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
+	default:
+		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
+		return nil
+	}
+}
+
+// findErrorCodesInCallExpression finds error codes that originate from the given function or method call.
+//
+// The given CallExpr could be:
+//   - a CallExpr that targets another function that has declared error codes (yay!)
+//   - a CallExpr that crosses package boundaries (get declared error codes or fail)
+//   - a CallExpr that's an interface (we can't really look deeper than that)
+//   - a CallExpr that targets another function in this package (recurse or load from cache)
+//   - a CallExpr that targets a function literal (not handled)
+func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc scc.State, callExpr *ast.CallExpr, startingFunc *ast.FuncDecl) codeSet {
+	// For a CallExpr we first look if the error codes are already computed and stored as a fact.
+	// If so we use those, otherwise we try to recurse and compute error codes for that function.
+	callee := typeutil.Callee(pass.TypesInfo, callExpr)
+	var fact ErrorCodes
+	if callee != nil && pass.ImportObjectFact(callee, &fact) {
+		return sliceToSet(fact.Codes)
+	}
+
+	var calledFunc *ast.FuncDecl
+
+	switch calledExpression := callExpr.Fun.(type) {
+	case *ast.Ident: // this is what calls in your own package look like. // TODO and dot-imported, I guess.  Yeesh.
+		switch funcDecl := calledExpression.Obj.Decl.(type) {
+		case *ast.FuncDecl: // Noramal function call
+			calledFunc = funcDecl
+		case *ast.TypeSpec: // Type conversion
+			return extractErrorCodesFromAffector(pass, lookup, startingFunc, callExpr)
+		}
+	case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
+		if target, ok := calledExpression.X.(*ast.Ident); ok {
+			if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
+				// We're calling a function in a package that does not have declared error codes
+				pass.ReportRangef(calledExpression, "function %q in package %q does not declare error codes", calledExpression.Sel.Name, obj.Imported().Name())
+				return set()
+			}
+		}
+
+		// This case is gonna be harder than functions: We need to figure out which function declaration applies,
+		// because there is no object information provided for methods calls.
+		selection := pass.TypesInfo.Selections[calledExpression]
+		calledFunc = lookup.searchMethod(pass, selection.Recv(), calledExpression.Sel.Name)
+	default:
+		pass.ReportRangef(calledExpression, "unnamed functions are not yet supported in error code analysis")
+		return set()
+	}
+
+	result := set()
+
+	if calledFunc != nil {
+		shouldRecurse := scc.HandleEdge(startingFunc, calledFunc)
+		if shouldRecurse {
+			result = findErrorCodesInFunc(pass, lookup, scc, calledFunc)
+			scc.AfterRecurse(startingFunc, calledFunc)
+		} else if cachedResult, ok := lookup.foundCodes[calledFunc]; ok {
+			result = cachedResult
+		}
+	} else {
+		// Could e.g. be a method which is defined in another package
+		pass.ReportRangef(callExpr.Fun, "called function does not declare error codes")
+	}
+
+	return result
+}
+
+// findErrorCodesFromIdentTaint finds error codes in the given function, by tracking all assignments to the given ident within the function.
+func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc scc.State, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *ast.FuncDecl) codeSet {
+	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
+	if _, ok := visitedIdents[ident]; ok {
+		return nil
+	}
+	visitedIdents[ident] = struct{}{}
+
+	// Check that the identifier is a local variable.
+	if ident.Obj != nil {
+		withinPos := within.Body.Pos()
+		if within.Type.Results != nil {
+			// Results are allowed too, because named results may be declared there.
+			withinPos = within.Type.Results.Pos()
+		}
+
+		if ident.Obj.Pos() <= withinPos || ident.Obj.Pos() >= within.Body.End() {
+			pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
 		}
 	}
+
+	result := set()
+
+	// Look for for `*ast.AssignStmt` in the function that could've affected this.
+	ast.Inspect(within, func(node ast.Node) bool {
+		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+
+		// Look for our ident's object in the left-hand-side of the assign.
+		// Either follow up on the statement at the same index in the Rhs,
+		// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
+		for i, lhsEntry := range assignment.Lhs {
+			switch lhsEntry := lhsEntry.(type) {
+			case *ast.Ident:
+				if lhsEntry.Obj != ident.Obj {
+					continue
+				}
+
+				if len(assignment.Lhs) == len(assignment.Rhs) {
+					newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, assignment.Rhs[i], within)
+					result = union(result, newCodes)
+				} else {
+					// Destructuring mode.
+					// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+					if i != len(assignment.Lhs)-1 {
+						pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
+						return false
+					}
+					// Because it's a CallExpr, we're done here: this is part of the result.
+					if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
+						newCodes := findErrorCodesInCallExpression(pass, lookup, scc, callExpr, within)
+						result = union(result, newCodes)
+					} else {
+						panic("what?")
+					}
+				}
+			case *ast.SelectorExpr:
+				// TODO: Implement assignment to fields of errors
+			}
+		}
+		return true
+	})
 
 	return result
 }

@@ -41,21 +41,6 @@ func (set codeSet) add(value string) {
 	set[value] = struct{}{}
 }
 
-// unionInplace returns a set containing all values that appear in either input set.
-// The input sets cannot be used afterwards as unionInplace works inplace.
-func unionInplace(set, other codeSet) codeSet {
-	// Make sure we add values from the smaller into the bigger set.
-	if len(set) < len(other) {
-		set, other = other, set
-	}
-
-	for value := range other {
-		set[value] = struct{}{}
-	}
-
-	return set
-}
-
 // union returns a set containing all values that appear in either input set.
 // The input sets are not modified.
 func union(set, other codeSet) codeSet {

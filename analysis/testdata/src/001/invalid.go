@@ -102,3 +102,19 @@ func InvalidErrorFromGlobal() error { // want InvalidErrorFromGlobal:"ErrorCodes
 	}
 	return &Error{"some-error"}
 }
+
+func getLambda() func() error {
+	return func() error {
+		return &Error{"lambda-error"}
+	}
+}
+
+// Errors:
+//
+//    - some-error --
+func InvalidErrorFromLambda() error { // want InvalidErrorFromLambda:"ErrorCodes: some-error"
+	if false {
+		return getLambda()() // want "unnamed functions are not yet supported in error code analysis"
+	}
+	return &Error{"some-error"}
+}

@@ -13,15 +13,10 @@ import (
 // funcLookup allows the performant lookup of function and method declarations in the current package by name,
 // and the lookup of cached error codes and affectors for function declarations.
 type funcLookup struct {
-	functions       map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
-	methods         map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
-	methodSet       typeutil.MethodSetCache
-	analysisResults map[*ast.FuncDecl]funcAnalysisResult // Mapping Function Declarations to cached error codes and affectors
-}
-
-type funcAnalysisResult struct {
-	codes     codeSet
-	affectors map[ast.Expr]struct{}
+	functions  map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
+	methods    map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
+	methodSet  typeutil.MethodSetCache
+	foundCodes map[*ast.FuncDecl]codeSet // Mapping Function Declarations to cached error codes and affectors
 }
 
 func newFuncLookup() *funcLookup {
@@ -29,7 +24,7 @@ func newFuncLookup() *funcLookup {
 		map[string]*ast.FuncDecl{},
 		map[string][]*ast.FuncDecl{},
 		typeutil.MethodSetCache{},
-		map[*ast.FuncDecl]funcAnalysisResult{},
+		map[*ast.FuncDecl]codeSet{},
 	}
 }
 
@@ -110,43 +105,4 @@ func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type,
 	}
 
 	return nil
-}
-
-func (r *funcAnalysisResult) addAffector(affector ast.Expr) {
-	if r.affectors == nil {
-		r.affectors = make(map[ast.Expr]struct{})
-	}
-	r.affectors[affector] = struct{}{}
-}
-
-// combineInplace combines the codes and affectors of both funcAnalysisResults.
-// The parameter other is modified after this call and should not be used any longer.
-func (r *funcAnalysisResult) combineInplace(other funcAnalysisResult) {
-	r.codes = unionInplace(r.codes, other.codes)
-
-	// Make sure we add values from the smaller into the bigger set.
-	if len(r.affectors) < len(other.affectors) {
-		r.affectors, other.affectors = other.affectors, r.affectors
-	}
-
-	for value := range other.affectors {
-		r.affectors[value] = struct{}{}
-	}
-}
-
-// combine combines the codes and affectors of both funcAnalysisResults.
-// Parameter and reciever of this method both stay unchanged and may be used further.
-func (r funcAnalysisResult) combine(other funcAnalysisResult) funcAnalysisResult {
-	codes := union(r.codes, other.codes)
-	affectors := make(map[ast.Expr]struct{}, len(r.affectors)+len(other.affectors))
-
-	for value := range r.affectors {
-		affectors[value] = struct{}{}
-	}
-
-	for value := range other.affectors {
-		affectors[value] = struct{}{}
-	}
-
-	return funcAnalysisResult{codes, affectors}
 }
