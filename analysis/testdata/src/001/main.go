@@ -75,7 +75,7 @@ func Six(flip bool) error { // want Six:"ErrorCodes: hello-error zonk-error"
 // Errors:
 //
 //    - hello-error -- is always returned.
-func Seven() error {
+func Seven() error { // want Seven:"ErrorCodes: hello-error"
 	uff := &Error{}
 	uff.TheCode = "hello-error"
 	var err error
@@ -89,7 +89,7 @@ func Seven() error {
 // Errors:
 //
 //    - hello-error -- is a lie, won't actually happen.
-func Eight() error { // want `function "Eight" has a mismatch of declared and actual error codes: unused codes: \[hello-error]`
+func Eight() error { // want Eight:"ErrorCodes: hello-error" `function "Eight" has a mismatch of declared and actual error codes: unused codes: \[hello-error]`
 	return fmt.Errorf("not a nice structural error") // want `function "Errorf" in package "fmt" does not declare error codes`
 }
 

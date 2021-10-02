@@ -514,7 +514,7 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 					// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
 					if i != len(assignment.Lhs)-1 {
 						pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
-						return false
+						continue
 					}
 					// Because it's a CallExpr, we're done here: this is part of the result.
 					if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
@@ -525,7 +525,46 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 					}
 				}
 			case *ast.SelectorExpr:
-				// TODO: Implement assignment to fields of errors
+				objIdent, ok := lhsEntry.X.(*ast.Ident)
+				if !ok || objIdent.Obj == nil {
+					continue // Cannot inspect assignments to more complicated expressions. (yet?)
+				}
+
+				if objIdent.Obj != ident.Obj {
+					continue // Not the ident we're looking for.
+				}
+
+				// Found an assignment to a field of the error we're looking at.
+				// Try to get the error type for the ident to see if the assignment is to the error code field.
+				errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[objIdent].Type)
+				if err != nil || errorType == nil || errorType.Field == nil {
+					continue
+				}
+
+				// Found valid error type, that has a error code field defined:
+				// Check if fields match and if they do try to get the error code from the assignment.
+				if errorType.Field.Name != lhsEntry.Sel.Name {
+					continue
+				}
+
+				if len(assignment.Lhs) != len(assignment.Rhs) {
+					pass.ReportRangef(lhsEntry, "error code field has to be assigned a constant value")
+					continue
+				}
+
+				value := pass.TypesInfo.Types[assignment.Rhs[i]].Value
+				if value == nil {
+					pass.ReportRangef(lhsEntry, "error code field has to be assigned a constant value")
+					continue
+				}
+
+				code, err := getErrorCodeFromConstant(value)
+				if err != nil {
+					pass.ReportRangef(assignment.Rhs[i], "%v", err)
+					continue
+				}
+
+				result.add(code)
 			}
 		}
 		return true
