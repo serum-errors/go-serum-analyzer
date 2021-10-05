@@ -14,6 +14,7 @@ func TestToyAnalyzer(t *testing.T) {
 func TestVerifyAnalyzer(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "001")
 	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "docformat")
+	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "dotimport")
 	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "errortypes")
 	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "field_assignment")
 	analysistest.Run(t, analysistest.TestData(), VerifyAnalyzer, "methods")

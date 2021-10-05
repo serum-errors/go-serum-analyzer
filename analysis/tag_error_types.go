@@ -4,11 +4,39 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"sort"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
+
+// ErrorType is a fact about a ree.Error type,
+// declaring which error codes Code() might return,
+// and/or what field gets returned by a call to Code().
+type ErrorType struct {
+	Codes []string        // error codes, or nil
+	Field *ErrorCodeField // field information, or nil
+}
+
+// ErrorCodeField is part of ErrorType,
+// and declares the field that might be returned by the Code() method of the ree.Error.
+type ErrorCodeField struct {
+	Name     string
+	Position int
+}
+
+func (*ErrorType) AFact() {}
+
+func (e *ErrorType) String() string {
+	sort.Strings(e.Codes)
+	return fmt.Sprintf("ErrorType{Field:%v, Codes:%v}", e.Field, strings.Join(e.Codes, " "))
+}
+
+func (f *ErrorCodeField) String() string {
+	return fmt.Sprintf("{Name:%q, Position:%d}", f.Name, f.Position)
+}
 
 // getNamedType casts the given type to *types.Named if possible,
 // unpacking pointers if they occur.
