@@ -114,6 +114,8 @@ func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type, spec 
 		return fmt.Errorf("type %q is an invalid error type: could not find any error codes", namedErr.Obj().Name())
 	}
 
+	analyseMethodsOfErrorType(pass, lookup, errorType, err)
+
 	pass.ExportObjectFact(namedErr.Obj(), errorType)
 	return nil
 }
@@ -207,7 +209,6 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 				return false
 			}
 
-			// TODO: Should we dissalow assignment to the error code field inside of the "Code" function? What about other possible modifications in methods of the error?
 			// Otherwise check if a single field is returned.
 			// Make sure that always the same field is returned and otherwise emit a diagnostic.
 			expression, ok := node.Results[0].(*ast.SelectorExpr)
@@ -271,4 +272,72 @@ func getFieldPosition(errorTypeSpec *ast.TypeSpec, fieldName *ast.Ident) int {
 	}
 
 	return -1
+}
+
+// analyseMethodsOfErrorType looks at all methods of the given error type
+// and makes sure there are no invalid assingments to the error code field.
+func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorType *ErrorType, err types.Type) {
+	// Return early if there is no error code field.
+	if errorType.Field == nil {
+		return
+	}
+
+	assignedCodes := set()
+
+	errorMethods := collectMethodsForErrorType(pass, lookup, err)
+	for _, method := range errorMethods {
+		// Only consider methods that have a named receiver,
+		// because only for those assignments to a field are possible.
+		receivers := method.Recv.List[0]
+		if len(receivers.Names) != 1 {
+			continue
+		}
+		receiver := receivers.Names[0]
+
+		ast.Inspect(method, func(node ast.Node) bool {
+			assignment, ok := node.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+
+			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, errorType, receiver, assignment)
+			assignedCodes = union(assignedCodes, newCodes)
+
+			return false
+		})
+	}
+
+	// If more error codes are found, add them to the given error type.
+	if len(assignedCodes) > 0 {
+		codes := union(sliceToSet(errorType.Codes), assignedCodes)
+		errorType.Codes = codes.slice()
+	}
+}
+
+// collectMethodsForErrorType finds all methods defined for the given error type in the current package.
+func collectMethodsForErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type) []*ast.FuncDecl {
+	namedErr := getNamedType(err)
+	if namedErr == nil {
+		return nil
+	}
+
+	// Only consider method names that were discovered by the type checker.
+	result := make([]*ast.FuncDecl, 0, namedErr.NumMethods())
+	for i := 0; i < namedErr.NumMethods(); i++ {
+		methodName := namedErr.Method(i).Name()
+		methods, ok := lookup.methods[methodName]
+		if !ok {
+			continue
+		}
+
+		for _, funcDecl := range methods {
+			receiverField := funcDecl.Recv.List[0]
+			if !errorTypesSubset(pass.TypesInfo.TypeOf(receiverField.Type), err) {
+				continue
+			}
+			result = append(result, funcDecl)
+		}
+	}
+
+	return result
 }

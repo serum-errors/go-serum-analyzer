@@ -357,7 +357,7 @@ func findErrorCodesInExpression(pass *analysis.Pass, lookup *funcLookup, scc scc
 		return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, expr, startingFunc)
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
-		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) { // TODO the docs of this function are not truthfully admitting how specific this is.
+		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) {
 			if ident, ok := expr.X.(*ast.Ident); ok {
 				return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, ident, startingFunc)
 			} else {
@@ -417,7 +417,7 @@ func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc
 		selection := pass.TypesInfo.Selections[calledExpression]
 		calledFunc = lookup.searchMethod(pass, selection.Recv(), calledExpression.Sel.Name)
 	default:
-		pass.ReportRangef(calledExpression, "unnamed functions are not yet supported in error code analysis")
+		pass.ReportRangef(calledExpression, "unnamed functions are not supported in error code analysis")
 		return set()
 	}
 
@@ -474,75 +474,100 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 		// Either follow up on the statement at the same index in the Rhs,
 		// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
 		for i, lhsEntry := range assignment.Lhs {
-			switch lhsEntry := lhsEntry.(type) {
-			case *ast.Ident:
-				if lhsEntry.Obj != ident.Obj {
+			lhsEntry, ok := lhsEntry.(*ast.Ident)
+			if !ok {
+				continue
+			}
+
+			if lhsEntry.Obj != ident.Obj {
+				continue
+			}
+
+			if len(assignment.Lhs) == len(assignment.Rhs) {
+				newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, assignment.Rhs[i], within)
+				result = union(result, newCodes)
+			} else {
+				// Destructuring mode.
+				// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+				if i != len(assignment.Lhs)-1 {
+					pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
 					continue
 				}
-
-				if len(assignment.Lhs) == len(assignment.Rhs) {
-					newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, assignment.Rhs[i], within)
+				// Because it's a CallExpr, we're done here: this is part of the result.
+				if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
+					newCodes := findErrorCodesInCallExpression(pass, lookup, scc, callExpr, within)
 					result = union(result, newCodes)
 				} else {
-					// Destructuring mode.
-					// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
-					if i != len(assignment.Lhs)-1 {
-						pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
-						continue
-					}
-					// Because it's a CallExpr, we're done here: this is part of the result.
-					if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
-						newCodes := findErrorCodesInCallExpression(pass, lookup, scc, callExpr, within)
-						result = union(result, newCodes)
-					} else {
-						panic("what?")
-					}
+					panic("what?")
 				}
-			case *ast.SelectorExpr:
-				objIdent, ok := lhsEntry.X.(*ast.Ident)
-				if !ok || objIdent.Obj == nil {
-					continue // Cannot inspect assignments to more complicated expressions. (yet?)
-				}
-
-				if objIdent.Obj != ident.Obj {
-					continue // Not the ident we're looking for.
-				}
-
-				// Found an assignment to a field of the error we're looking at.
-				// Try to get the error type for the ident to see if the assignment is to the error code field.
-				errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[objIdent].Type)
-				if err != nil || errorType == nil || errorType.Field == nil {
-					continue
-				}
-
-				// Found valid error type, that has a error code field defined:
-				// Check if fields match and if they do try to get the error code from the assignment.
-				if errorType.Field.Name != lhsEntry.Sel.Name {
-					continue
-				}
-
-				if len(assignment.Lhs) != len(assignment.Rhs) {
-					pass.ReportRangef(lhsEntry, "error code field has to be assigned a constant value")
-					continue
-				}
-
-				value := pass.TypesInfo.Types[assignment.Rhs[i]].Value
-				if value == nil {
-					pass.ReportRangef(lhsEntry, "error code field has to be assigned a constant value")
-					continue
-				}
-
-				code, err := getErrorCodeFromConstant(value)
-				if err != nil {
-					pass.ReportRangef(assignment.Rhs[i], "%v", err)
-					continue
-				}
-
-				result.add(code)
 			}
 		}
+
+		// Adding codes that originate from assignments to the error code field.
+		newCodes := findCodesAssignedToErrorCodeField(pass, lookup, nil, ident, assignment)
+		result = union(result, newCodes)
+
 		return true
 	})
+
+	return result
+}
+
+// findCodesAssignedToErrorCodeField searches through the given assignment and returns every constant code assigned to the error code field.
+// For invalid assignments to the error code field, diagnostics are emitted.
+func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, errorType *ErrorType, errorIdent *ast.Ident, assignment *ast.AssignStmt) codeSet {
+	result := set()
+
+	for i, lhsEntry := range assignment.Lhs {
+		lhsEntry, ok := lhsEntry.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+
+		objIdent, ok := lhsEntry.X.(*ast.Ident)
+		if !ok || objIdent.Obj == nil {
+			continue // Cannot inspect assignments to more complicated expressions. (yet?)
+		}
+
+		if objIdent.Obj != errorIdent.Obj {
+			continue // Not the ident we're looking for.
+		}
+
+		// Found an assignment to a field of the error we're looking at.
+		// Try to get the error type for the ident to see if the assignment is to the error code field.
+		if errorType == nil {
+			var err error
+			errorType, err = getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[objIdent].Type)
+			if err != nil || errorType == nil || errorType.Field == nil {
+				continue
+			}
+		}
+
+		// Found valid error type, that has a error code field defined:
+		// Check if fields match and if they do try to get the error code from the assignment.
+		if errorType.Field.Name != lhsEntry.Sel.Name {
+			continue
+		}
+
+		if len(assignment.Lhs) != len(assignment.Rhs) {
+			pass.ReportRangef(assignment.Rhs[0], "error code field has to be assigned a constant value")
+			continue
+		}
+
+		value := pass.TypesInfo.Types[assignment.Rhs[i]].Value
+		if value == nil {
+			pass.ReportRangef(assignment.Rhs[i], "error code field has to be assigned a constant value")
+			continue
+		}
+
+		code, err := getErrorCodeFromConstant(value)
+		if err != nil {
+			pass.ReportRangef(assignment.Rhs[i], "%v", err)
+			continue
+		}
+
+		result.add(code)
+	}
 
 	return result
 }

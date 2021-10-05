@@ -220,3 +220,38 @@ type InvalidStringError string // want `type "InvalidStringError" is an invalid 
 
 func (e InvalidStringError) Code() string  { return string(e) } // want `function "Code" should always return a string constant or a single field`
 func (e InvalidStringError) Error() string { return "InvalidStringError" }
+
+type ModifyingError1 struct { // want ModifyingError1:`ErrorType{Field:{Name:"code", Position:0}, Codes:replaced-1-error replaced-2-error replaced-3-error}`
+	code         string
+	flag1, flag2 bool
+}
+
+func (e *ModifyingError1) Code() string {
+	if e.flag1 {
+		e.code = "replaced-1-error"
+	}
+	if e.flag2 {
+		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+	}
+	return e.code
+}
+
+func (e *ModifyingError1) Error() string {
+	if e.flag1 {
+		e.code = "replaced-2-error"
+	}
+	if e.flag2 {
+		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+	}
+	return "ModifyingError1"
+}
+
+func (e *ModifyingError1) OtherMethod() string {
+	if e.flag1 {
+		e.code = "replaced-3-error"
+	}
+	if e.flag2 {
+		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+	}
+	return "ModifyingError1"
+}
