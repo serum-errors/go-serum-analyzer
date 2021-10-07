@@ -13,6 +13,12 @@ func CodeNotDeclared2() error {
 	return &Inner2Error{"some-error"}
 }
 
+type SomeType2 struct{}
+
+func (SomeType2) CodeNotDeclared() error {
+	return &Inner2Error{"some-error"}
+}
+
 type Inner2Error struct {
 	TheCode string
 }

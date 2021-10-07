@@ -13,6 +13,12 @@ func CodeNotDeclared() error {
 	return &Error{"some-error"}
 }
 
+type SomeType struct{}
+
+func (SomeType) CodeNotDeclared() error {
+	return &Error{"some-error"}
+}
+
 type Error struct {
 	TheCode string
 }

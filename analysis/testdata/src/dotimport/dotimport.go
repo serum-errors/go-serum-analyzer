@@ -81,6 +81,28 @@ func CallToUndeclared2() error { // want CallToUndeclared2:"ErrorCodes: x-error"
 	return &Error{"x-error"}
 }
 
+// Errors:
+//
+//    - x-error --
+func CallToUndeclared3() error { // want CallToUndeclared3:"ErrorCodes: x-error"
+	if true {
+		object := SomeType1{}
+		return object.CodeNotDeclared() // want "called function does not declare error codes"
+	}
+	return &Error{"x-error"}
+}
+
+// Errors:
+//
+//    - x-error --
+func CallToUndeclared4() error { // want CallToUndeclared4:"ErrorCodes: x-error"
+	if true {
+		object := SomeType2{}
+		return object.CodeNotDeclared() // want "called function does not declare error codes"
+	}
+	return &Error{"x-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

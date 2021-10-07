@@ -13,6 +13,12 @@ func CodeNotDeclared1() error { // want `function "CodeNotDeclared1" is exported
 	return &Inner1Error{"some-error"}
 }
 
+type SomeType1 struct{}
+
+func (SomeType1) CodeNotDeclared() error { // want `function "CodeNotDeclared" is exported, but does not declare any error codes`
+	return &Inner1Error{"some-error"}
+}
+
 type Inner1Error struct { // want Inner1Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
