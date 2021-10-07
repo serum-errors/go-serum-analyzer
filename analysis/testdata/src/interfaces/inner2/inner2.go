@@ -1,4 +1,4 @@
-package inner1
+package inner2
 
 type ImplementOuter2 struct{}
 

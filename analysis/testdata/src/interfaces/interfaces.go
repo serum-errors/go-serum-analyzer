@@ -51,6 +51,55 @@ func OuterFunction(a, b string) error { // want OuterFunction:"ErrorCodes: inter
 	return InterfaceParam(inner2.ImplementOuter2{}, a, b)
 }
 
+type (
+	ImplementInner1Interface1 struct{}
+	ImplementInner1Interface2 struct{}
+	ImplementInner1Interface3 struct{}
+)
+
+// Errors:
+//
+//    - interface-1-error --
+func (ImplementInner1Interface1) Inner1Method1() error { // want Inner1Method1:"ErrorCodes: interface-1-error"
+	return &Error{"interface-1-error"}
+}
+
+// Errors:
+//
+//    - interface-3-error --
+func (ImplementInner1Interface1) Inner1Method2(a, b string) *inner1.Error { // want Inner1Method2:"ErrorCodes: interface-3-error"
+	return &inner1.Error{"interface-3-error"}
+}
+
+func (ImplementInner1Interface1) Inner1MethodWithoutError(a, b string) string {
+	return a
+}
+
+// Errors:
+//
+//    - interface-1-error --
+func (ImplementInner1Interface2) Inner1CodeNotDeclared() error { /*
+		want
+			Inner1CodeNotDeclared:"ErrorCodes: interface-1-error"
+			`function "Inner1CodeNotDeclared" declares error codes that are not declared in the interface "Inner1Interface2": \[interface-1-error]` */
+	return &Error{"interface-1-error"}
+}
+
+func (ImplementInner1Interface3) Inner1NoCodes() error { // want `function "Inner1NoCodes" is exported, but does not declare any error codes`
+	return nil
+}
+
+// Errors:
+//
+//    - interface-1-error -- could potentially be returned
+//    - interface-2-error --
+func (ImplementInner1Interface3) Inner1YesCodes() error { // want Inner1YesCodes:"ErrorCodes: interface-1-error interface-2-error"
+	if false {
+		return &Error{"interface-1-error"}
+	}
+	return &Error{"interface-2-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
