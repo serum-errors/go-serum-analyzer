@@ -90,6 +90,26 @@ func Inner2UnusedError() error { // want Inner2UnusedError:"ErrorCodes: inner2-u
 	return &inner2.UnusedError{"inner2-unused-error"}
 }
 
+// Errors:
+//
+//    - x-error --
+func CallToUndeclared1() error { // want CallToUndeclared1:"ErrorCodes: x-error"
+	if true {
+		return inner1.CodeNotDeclared() // want `function "CodeNotDeclared" in package "inner1" does not declare error codes`
+	}
+	return &Error{"x-error"}
+}
+
+// Errors:
+//
+//    - x-error --
+func CallToUndeclared2() error { // want CallToUndeclared2:"ErrorCodes: x-error"
+	if true {
+		return inner2.CodeNotDeclared() // want `function "CodeNotDeclared" in package "inner2" does not declare error codes`
+	}
+	return &Error{"x-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

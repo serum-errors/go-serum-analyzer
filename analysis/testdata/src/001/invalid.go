@@ -1,5 +1,9 @@
 package main
 
+func CodeNotDeclared() error { // want `function "CodeNotDeclared" is exported, but does not declare any error codes`
+	return &Error{"some-error"}
+}
+
 func ErrorNotLast() (error, int) { // want "error should be returned as the last argument"
 	return &Error{"hello-error"}, 0
 }

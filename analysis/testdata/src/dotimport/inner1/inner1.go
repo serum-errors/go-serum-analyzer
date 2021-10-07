@@ -9,6 +9,10 @@ func ExportedFunc1() error { // want ExportedFunc1:"ErrorCodes: hello-error"
 	return &Inner1Error{"hello-error"}
 }
 
+func CodeNotDeclared1() error { // want `function "CodeNotDeclared1" is exported, but does not declare any error codes`
+	return &Inner1Error{"some-error"}
+}
+
 type Inner1Error struct { // want Inner1Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

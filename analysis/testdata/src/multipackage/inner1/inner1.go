@@ -13,6 +13,10 @@ type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0},
 	TheCode string
 }
 
+func CodeNotDeclared() error { // want `function "CodeNotDeclared" is exported, but does not declare any error codes`
+	return &Error{"some-error"}
+}
+
 func (e *Error) Code() string               { return e.TheCode }
 func (e *Error) Message() string            { return e.TheCode }
 func (e *Error) Details() map[string]string { return nil }

@@ -9,6 +9,10 @@ func ExportedFunc2() error {
 	return &Error{"hello-error"}
 }
 
+func CodeNotDeclared() error {
+	return &Error{"some-error"}
+}
+
 type Error struct {
 	TheCode string
 }

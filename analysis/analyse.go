@@ -397,6 +397,11 @@ func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc
 
 	switch calledExpression := callExpr.Fun.(type) {
 	case *ast.Ident: // this is what calls in your own package look like.
+		if calledExpression.Obj == nil {
+			pass.ReportRangef(calledExpression, "function %q in dot-imported package does not declare error codes", calledExpression.Name)
+			return set()
+		}
+
 		switch funcDecl := calledExpression.Obj.Decl.(type) {
 		case *ast.FuncDecl: // Noramal function call
 			calledFunc = funcDecl
