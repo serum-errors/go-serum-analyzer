@@ -1,0 +1,22 @@
+package multifile
+
+// Errors:
+//
+//    - func1-error --
+//    - func2-error --
+func Func1() error { // want Func1:"ErrorCodes: func1-error func2-error"
+	if false {
+		return Func2()
+	}
+	return &Error{"func2-error"}
+}
+
+type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
+	TheCode string
+}
+
+func (e *Error) Code() string               { return e.TheCode }
+func (e *Error) Message() string            { return e.TheCode }
+func (e *Error) Details() map[string]string { return nil }
+func (e *Error) Cause() error               { return nil }
+func (e *Error) Error() string              { return e.Message() }
