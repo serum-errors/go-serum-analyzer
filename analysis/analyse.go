@@ -458,14 +458,14 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 	visitedIdents[ident] = struct{}{}
 
 	// Check that the identifier is a local variable.
-	if ident.Obj != nil {
+	if ident.Name != "nil" {
 		withinPos := within.Body.Pos()
 		if within.Type.Results != nil {
 			// Results are allowed too, because named results may be declared there.
 			withinPos = within.Type.Results.Pos()
 		}
 
-		if ident.Obj.Pos() <= withinPos || ident.Obj.Pos() >= within.Body.End() {
+		if ident.Obj == nil || ident.Obj.Pos() <= withinPos || ident.Obj.Pos() >= within.Body.End() {
 			pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
 		}
 	}
