@@ -150,6 +150,86 @@ func InvalidCodeFormat5() error { // want `function "InvalidCodeFormat5" has odd
 	return nil
 }
 
+type InterfaceOne interface {
+	One() error // want `interface method "One" does not declare any error codes`
+
+	// OneWithComment is demo function.
+	// Erros are not documented in this function which should be detected by our analyzer.
+	OneWithComment() error // want `interface method "OneWithComment" does not declare any error codes`
+
+	one() error // want `interface method "one" does not declare any error codes`
+}
+
+type OddDocstringInterface interface {
+	// Two is a test function.
+	//
+	// Errors:
+	//    - hello-error -- is always returned.
+	Two() error // want `interface method "Two" has odd docstring: need a blank line after the 'Errors:' block indicator`
+
+	// Three is a demo function.
+	// The following errors docstring has multiple 'Errors:' block indicators which is invalid.
+	//
+	// Errors:
+	//
+	// Errors:
+	//
+	//    - hello-error -- is always returned.
+	Three() error // want `interface method "Three" has odd docstring: repeated 'Errors:' block indicator`
+
+	// Four is a demo function.
+	// The following errors docstring has multiple 'Errors:' block indicators which is invalid.
+	//
+	// Errors:
+	//
+	//    - hello-error -- is always returned.
+	//
+	// Errors:
+	//
+	//    - hello-error -- is always returned.
+	Four() error // want `interface method "Four" has odd docstring: repeated 'Errors:' block indicator`
+
+	// Five is a demo function.
+	// The following errors docstring has an error code line with an invalid format.
+	//
+	// Errors:
+	//
+	//    - hello-error - is always returned.
+	Five() error // want `interface method "Five" has odd docstring: mid block, a line leading with '- ' didnt contain a '--' to mark the end of the code name`
+
+	// Six is a demo function.
+	// The following errors docstring has an invalid whitespace error code.
+	//
+	// Errors:
+	//
+	//    - hello-error -- is always returned.
+	//    - -- is invalid.
+	Six() error // want `interface method "Six" has odd docstring: an error code can't be purely whitespace`
+
+	// Seven is a demo function.
+	// The following errors docstring has an invalid whitespace error code.
+	//
+	// Errors:
+	//
+	//    - hello-error -- is always returned.
+	//    -             -- is invalid.
+	Seven() error // want `interface method "Seven" has odd docstring: an error code can't be purely whitespace`
+
+	// InvalidCodeFormat1 declares an error with invalid format.
+	//
+	// Errors:
+	//
+	// - invalid- -- ending with a dash
+	InvalidCodeFormat1() error // want `interface method "InvalidCodeFormat1" has odd docstring: declared error code has invalid format: should match .*`
+
+	// InvalidCodeFormat2 declares an error with invalid format.
+	//
+	// Errors:
+	//
+	// - -invalid -- starting with a dash
+	InvalidCodeFormat2() error // want `interface method "InvalidCodeFormat2" has odd docstring: declared error code has invalid format: should match .*`
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

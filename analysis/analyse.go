@@ -13,6 +13,7 @@ import (
 	"github.com/warpfork/go-ree/analysis/scc"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -79,6 +80,9 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 
 	findAndTagErrorTypes(pass, lookup)
 
+	interfaces := findErrorReturningInterfaces(pass)
+	_ = interfaces
+
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
 	// Out of funcsToAnalyse get all functions that declare error codes and the actual codes they declare.
@@ -123,6 +127,14 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewNamed(types.NewTypeName(token.NoPos, nil, "error", tError), nil, nil))), false)),
 }, nil).Complete()
 
+// findErrorDocs looks at the given comments and tries to find error code declarations.
+func findErrorDocs(comments *ast.CommentGroup) (codeSet, error) {
+	if comments == nil {
+		return nil, nil
+	}
+	return findErrorDocsSM{}.run(comments.Text())
+}
+
 // findErrorReturningFunctions looks for functions that return an error,
 // and emits a diagnostic if a function returns an error, but not as the last argument.
 func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast.FuncDecl {
@@ -137,26 +149,36 @@ func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast
 	// but if so, that's something we'll look into more later, not right now.
 	var funcsToAnalyse []*ast.FuncDecl
 	lookup.forEach(func(funcDecl *ast.FuncDecl) {
-		resultsList := funcDecl.Type.Results
-		if resultsList == nil {
-			return
+		if checkFunctionReturnsError(pass, funcDecl.Type) {
+			funcsToAnalyse = append(funcsToAnalyse, funcDecl)
 		}
-		lastResult := resultsList.List[len(resultsList.List)-1]
-		typ := pass.TypesInfo.TypeOf(lastResult.Type)
-		if !types.Implements(typ, tError) {
-			// Emit diagnostic if an error is returned as non-last argument
-			for _, result := range resultsList.List {
-				typ := pass.TypesInfo.TypeOf(result.Type)
-				if types.Implements(typ, tError) {
-					pass.Reportf(result.Pos(), "error should be returned as the last argument")
-				}
-			}
-			return
-		}
-		funcsToAnalyse = append(funcsToAnalyse, funcDecl)
 	})
 
 	return funcsToAnalyse
+}
+
+// checkFunctionReturnsError determines if the given type is a function that returns an error.
+// If the last result is not an error but one of the other results is, it emits a diagnostic.
+func checkFunctionReturnsError(pass *analysis.Pass, funcType *ast.FuncType) bool {
+	resultsList := funcType.Results
+	if resultsList == nil {
+		return false
+	}
+
+	lastResult := resultsList.List[len(resultsList.List)-1]
+	typ := pass.TypesInfo.TypeOf(lastResult.Type)
+	if !types.Implements(typ, tError) {
+		// Emit diagnostic if an error is returned as non-last argument
+		for _, result := range resultsList.List {
+			typ := pass.TypesInfo.TypeOf(result.Type)
+			if types.Implements(typ, tError) {
+				pass.ReportRangef(result, "error should be returned as the last argument")
+			}
+		}
+		return false
+	}
+
+	return true
 }
 
 // findClaimedErrorCodes finds the error codes claimed by the given functions,
@@ -165,7 +187,7 @@ func findErrorReturningFunctions(pass *analysis.Pass, lookup *funcLookup) []*ast
 func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) funcCodes {
 	result := funcCodes{}
 	for _, funcDecl := range funcsToAnalyse {
-		codes, err := findErrorDocs(funcDecl)
+		codes, err := findErrorDocs(funcDecl.Doc)
 		if err != nil {
 			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
 			continue
@@ -194,11 +216,60 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 	return result
 }
 
-func findErrorDocs(funcDecl *ast.FuncDecl) (codeSet, error) {
-	if funcDecl.Doc == nil {
-		return nil, nil
+func findErrorReturningInterfaces(pass *analysis.Pass) error {
+	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+
+	// We only need to see type declarations.
+	nodeFilter := []ast.Node{
+		(*ast.GenDecl)(nil),
 	}
-	return findErrorDocsSM{}.run(funcDecl.Doc.Text())
+
+	inspect.Nodes(nodeFilter, func(node ast.Node, _ bool) bool {
+		genDecl := node.(*ast.GenDecl)
+
+		for _, spec := range genDecl.Specs {
+			checkErrorReturningInterface(pass, spec)
+		}
+
+		// Never recurse deeper.
+		return false
+	})
+
+	return nil
+}
+
+func checkErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) {
+	typeSpec, ok := spec.(*ast.TypeSpec)
+	if !ok {
+		return
+	}
+
+	// Make sure type spec is a valid interface.
+	interfaceType, ok := typeSpec.Type.(*ast.InterfaceType)
+	if !ok || interfaceType.Methods == nil || len(interfaceType.Methods.List) == 0 {
+		return
+	}
+
+	for _, method := range interfaceType.Methods.List {
+		funcType, ok := method.Type.(*ast.FuncType)
+		if ok && checkFunctionReturnsError(pass, funcType) {
+			codes, err := findErrorDocs(method.Doc)
+			if err != nil {
+				pass.ReportRangef(method, "interface method %q has odd docstring: %s", method.Names[0].Name, err)
+				continue
+			}
+
+			if len(codes) == 0 {
+				// TODO: Exclude Cause() methods of error types from having to declare error codes.
+
+				// Warn directly about any methods if they return errors, but don't declare error codes in their docs.
+				pass.ReportRangef(method, "interface method %q does not declare any error codes", method.Names[0].Name)
+			} else {
+				// result[funcDecl] = codes
+				// TODO
+			}
+		}
+	}
 }
 
 // exportFunctionErrorCodes exports all codes for each function in the given map as facts.

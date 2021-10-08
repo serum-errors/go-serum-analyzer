@@ -25,6 +25,10 @@ type SomeInterface interface {
 	MethodWithoutError(a, b string) string
 }
 
+type WithInvalidMethods interface {
+	InvalidMethod1() (error, string) // want "error should be returned as the last argument"
+}
+
 // Errors:
 //
 //    - interface-1-error --

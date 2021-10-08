@@ -21,11 +21,11 @@ type Inner1Interface1 interface {
 }
 
 type Inner1Interface2 interface {
-	Inner1CodeNotDeclared() error // want `function "Inner1CodeNotDeclared" is exported, but does not declare any error codes`
+	Inner1CodeNotDeclared() error // want `interface method "Inner1CodeNotDeclared" does not declare any error codes`
 }
 
 type Inner1Interface3 interface {
-	Inner1NoCodes() error // want `function "Inner1NoCodes" is exported, but does not declare any error codes`
+	Inner1NoCodes() error // want `interface method "Inner1NoCodes" does not declare any error codes`
 
 	// Errors:
 	//
