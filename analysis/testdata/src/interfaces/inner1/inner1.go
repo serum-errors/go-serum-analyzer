@@ -1,6 +1,6 @@
 package inner1
 
-type Inner1Interface1 interface {
+type Inner1Interface1 interface { // want Inner1Interface1:"ErrorInterface: Inner1Method1 Inner1Method2"
 	// InterfaceMethod1 is a method returning an error with error codes declared in doc.
 	//
 	// Errors:
@@ -24,7 +24,7 @@ type Inner1Interface2 interface {
 	Inner1CodeNotDeclared() error // want `interface method "Inner1CodeNotDeclared" does not declare any error codes`
 }
 
-type Inner1Interface3 interface {
+type Inner1Interface3 interface { // want Inner1Interface3:"ErrorInterface: Inner1YesCodes"
 	Inner1NoCodes() error // want `interface method "Inner1NoCodes" does not declare any error codes`
 
 	// Errors:

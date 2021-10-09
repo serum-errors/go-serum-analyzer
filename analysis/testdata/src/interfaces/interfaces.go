@@ -5,7 +5,7 @@ import (
 	"interfaces/inner2"
 )
 
-type SomeInterface interface {
+type SomeInterface interface { // want SomeInterface:"ErrorInterface: InterfaceMethod1 InterfaceMethod2"
 	// InterfaceMethod1 is a method returning an error with error codes declared in doc.
 	//
 	// Errors:

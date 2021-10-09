@@ -67,8 +67,8 @@ func (e *ErrorInterface) String() string {
 // errorInterfaceWithCodes is used for temporary storing and passing an interface containing
 // methods that declare error codes.
 type errorInterfaceWithCodes struct {
-	InterfaceType *ast.InterfaceType
-	ErrorMethods  map[*ast.Ident]codeSet
+	InterfaceIdent *ast.Ident
+	ErrorMethods   map[*ast.Ident]codeSet
 }
 
 // isErrorCodeValid checks if the given error code is valid.
@@ -281,7 +281,7 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		return nil
 	}
 
-	result := errorInterfaceWithCodes{interfaceType, map[*ast.Ident]codeSet{}}
+	result := errorInterfaceWithCodes{typeSpec.Name, map[*ast.Ident]codeSet{}}
 
 	for _, method := range interfaceType.Methods.List {
 		funcType, ok := method.Type.(*ast.FuncType)
@@ -320,17 +320,40 @@ func exportFunctionFacts(pass *analysis.Pass, codes funcCodes) {
 // additionally exports for each interface the fact that it is an error interface.
 func exportInterfaceFacts(pass *analysis.Pass, interfaces []*errorInterfaceWithCodes) {
 	for _, errorInterface := range interfaces {
+		exportErrorInterfaceFact(pass, errorInterface)
 		for methodIdent, codes := range errorInterface.ErrorMethods {
 			exportErrorCodesFact(pass, methodIdent, codes)
 		}
 	}
 }
 
+func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfaceWithCodes) {
+	interfaceType, ok := pass.TypesInfo.Defs[errorInterface.InterfaceIdent]
+	if !ok {
+		logf("Could not find definition for interface %q!", errorInterface.InterfaceIdent.Name)
+		return
+	}
+
+	methods := make([]string, 0, len(errorInterface.ErrorMethods))
+	for methodIdent := range errorInterface.ErrorMethods {
+		methods = append(methods, methodIdent.Name)
+	}
+
+	fact := ErrorInterface{methods}
+	pass.ExportObjectFact(interfaceType, &fact)
+}
+
 // exportErrorCodesFact exports all given codes for the given function as an ErrorCodes fact.
 func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes codeSet) {
-	fn, ok := pass.TypesInfo.Defs[funcIdent].(*types.Func)
+	definition, ok := pass.TypesInfo.Defs[funcIdent]
 	if !ok {
 		logf("Could not find definition for function %q!", funcIdent.Name)
+		return
+	}
+
+	fn, ok := definition.(*types.Func)
+	if !ok {
+		logf("Definition for given identifier %q is not a function!", funcIdent.Name)
 		return
 	}
 
