@@ -29,6 +29,7 @@ var VerifyAnalyzer = &analysis.Analyzer{
 	FactTypes: []analysis.Fact{
 		new(ErrorCodes),
 		new(ErrorType),
+		new(ErrorInterface),
 	},
 }
 
@@ -45,7 +46,33 @@ func (e *ErrorCodes) String() string {
 
 type funcCodes map[*ast.FuncDecl]codeSet
 
+// ErrorInterface is a fact emitted by the analyser,
+// marking an interface as containing methods that declare error codes.
+type ErrorInterface struct {
+	// ErrorMethods contains the names of all methods in the interface,
+	// that have error codes declared.
+	//
+	// For all types implementing this interface, these methods must be checked to
+	// make sure they only contain a subset of the error codes declared in the interface.
+	ErrorMethods []string
+}
+
+func (*ErrorInterface) AFact() {}
+
+func (e *ErrorInterface) String() string {
+	sort.Strings(e.ErrorMethods)
+	return fmt.Sprintf("ErrorInterface: %v", strings.Join(e.ErrorMethods, " "))
+}
+
+// errorInterfaceWithCodes is used for temporary storing and passing an interface containing
+// methods that declare error codes.
+type errorInterfaceWithCodes struct {
+	InterfaceType *ast.InterfaceType
+	ErrorMethods  map[*ast.Ident]codeSet
+}
+
 // isErrorCodeValid checks if the given error code is valid.
+//
 // Valid error codes have to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$".
 func isErrorCodeValid(code string) bool {
 	if len(code) == 0 {
@@ -81,7 +108,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	findAndTagErrorTypes(pass, lookup)
 
 	interfaces := findErrorReturningInterfaces(pass)
-	_ = interfaces
+	exportInterfaceFacts(pass, interfaces)
 
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
@@ -107,7 +134,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Export all claimed error codes as facts.
 	// Missing error code docs or unused ones will get reported in the respective functions,
 	// but on caller site only the documented behaviour matters.
-	exportFunctionErrorCodes(pass, funcClaims)
+	exportFunctionFacts(pass, funcClaims)
 
 	return nil, nil
 }
@@ -216,7 +243,8 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 	return result
 }
 
-func findErrorReturningInterfaces(pass *analysis.Pass) error {
+func findErrorReturningInterfaces(pass *analysis.Pass) []*errorInterfaceWithCodes {
+	var result []*errorInterfaceWithCodes
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	// We only need to see type declarations.
@@ -228,62 +256,86 @@ func findErrorReturningInterfaces(pass *analysis.Pass) error {
 		genDecl := node.(*ast.GenDecl)
 
 		for _, spec := range genDecl.Specs {
-			checkErrorReturningInterface(pass, spec)
+			errorInterface := checkIfErrorReturningInterface(pass, spec)
+			if errorInterface != nil && len(errorInterface.ErrorMethods) > 0 {
+				result = append(result, errorInterface)
+			}
 		}
 
 		// Never recurse deeper.
 		return false
 	})
 
-	return nil
+	return result
 }
 
-func checkErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) {
+func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorInterfaceWithCodes {
 	typeSpec, ok := spec.(*ast.TypeSpec)
 	if !ok {
-		return
+		return nil
 	}
 
 	// Make sure type spec is a valid interface.
 	interfaceType, ok := typeSpec.Type.(*ast.InterfaceType)
 	if !ok || interfaceType.Methods == nil || len(interfaceType.Methods.List) == 0 {
-		return
+		return nil
 	}
+
+	result := errorInterfaceWithCodes{interfaceType, map[*ast.Ident]codeSet{}}
 
 	for _, method := range interfaceType.Methods.List {
 		funcType, ok := method.Type.(*ast.FuncType)
-		if ok && checkFunctionReturnsError(pass, funcType) {
-			codes, err := findErrorDocs(method.Doc)
-			if err != nil {
-				pass.ReportRangef(method, "interface method %q has odd docstring: %s", method.Names[0].Name, err)
-				continue
-			}
+		if !ok || !checkFunctionReturnsError(pass, funcType) {
+			continue
+		}
 
-			if len(codes) == 0 {
-				// TODO: Exclude Cause() methods of error types from having to declare error codes.
+		methodIdent := method.Names[0]
+		codes, err := findErrorDocs(method.Doc)
+		if err != nil {
+			pass.ReportRangef(method, "interface method %q has odd docstring: %s", methodIdent.Name, err)
+			continue
+		}
 
-				// Warn directly about any methods if they return errors, but don't declare error codes in their docs.
-				pass.ReportRangef(method, "interface method %q does not declare any error codes", method.Names[0].Name)
-			} else {
-				// result[funcDecl] = codes
-				// TODO
-			}
+		if len(codes) == 0 {
+			// TODO: Exclude Cause() methods of error types from having to declare error codes.
+
+			// Warn directly about any methods if they return errors, but don't declare error codes in their docs.
+			pass.ReportRangef(method, "interface method %q does not declare any error codes", methodIdent.Name)
+		} else {
+			result.ErrorMethods[methodIdent] = codes
+		}
+	}
+
+	return &result
+}
+
+// exportFunctionFacts exports all codes for each function in the given map as facts.
+func exportFunctionFacts(pass *analysis.Pass, codes funcCodes) {
+	for funcDecl, codeSet := range codes {
+		exportErrorCodesFact(pass, funcDecl.Name, codeSet)
+	}
+}
+
+// exportInterfaceFacts exports all codes for each method in each interface as facts,
+// additionally exports for each interface the fact that it is an error interface.
+func exportInterfaceFacts(pass *analysis.Pass, interfaces []*errorInterfaceWithCodes) {
+	for _, errorInterface := range interfaces {
+		for methodIdent, codes := range errorInterface.ErrorMethods {
+			exportErrorCodesFact(pass, methodIdent, codes)
 		}
 	}
 }
 
-// exportFunctionErrorCodes exports all codes for each function in the given map as facts.
-func exportFunctionErrorCodes(pass *analysis.Pass, codes funcCodes) {
-	for funcDecl, codeSet := range codes {
-		fn, ok := pass.TypesInfo.Defs[funcDecl.Name].(*types.Func)
-		if !ok {
-			logf("Could not find definition for function %q!", funcDecl.Name.Name)
-			continue
-		}
-
-		fact := ErrorCodes{codeSet.slice()}
-		pass.ExportObjectFact(fn, &fact)
+// exportErrorCodesFact exports all given codes for the given function as an ErrorCodes fact.
+func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes codeSet) {
+	fn, ok := pass.TypesInfo.Defs[funcIdent].(*types.Func)
+	if !ok {
+		logf("Could not find definition for function %q!", funcIdent.Name)
+		return
 	}
+
+	fact := ErrorCodes{codes.slice()}
+	pass.ExportObjectFact(fn, &fact)
 }
 
 // extractErrorCodesFromAffector extracts all error codes from the given affectors and returns them.
@@ -442,7 +494,7 @@ func findErrorCodesInExpression(pass *analysis.Pass, lookup *funcLookup, scc scc
 	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
 		return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 	default:
-		logf(":: findAffectorsInFunc does not yet handle %#v\n", expr)
+		logf("findErrorCodesInExpression does not yet handle %#v\n", expr)
 		return nil
 	}
 }
