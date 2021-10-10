@@ -81,7 +81,8 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 
 	findAndTagErrorTypes(pass, lookup)
 
-	runVerifyInterfaces(pass)
+	interfaces := findErrorReturningInterfaces(pass)
+	exportInterfaceFacts(pass, interfaces)
 
 	funcsToAnalyse := findErrorReturningFunctions(pass, lookup)
 
@@ -108,6 +109,8 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Missing error code docs or unused ones will get reported in the respective functions,
 	// but on caller site only the documented behaviour matters.
 	exportFunctionFacts(pass, funcClaims)
+
+	findConversionsToErrorReturningInterfaces(pass, lookup)
 
 	return nil, nil
 }

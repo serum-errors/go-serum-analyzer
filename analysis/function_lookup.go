@@ -69,15 +69,8 @@ func (lookup *funcLookup) forEach(f func(*ast.FuncDecl)) {
 	}
 }
 
-// searchMethod tries to find the correct function declaration for a method given the receiver type and method name.
-func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type, methodName string) *ast.FuncDecl {
-	methods, ok := lookup.methods[methodName]
-	if !ok || len(methods) == 0 {
-		// Return early if there is no method in the current package with the given name
-		return nil
-	}
-
-	// Search for method in the type information using receiver type and method name
+// searchMethodType searches for method in the type information using receiver type and method name.
+func (lookup *funcLookup) searchMethodType(pass *analysis.Pass, receiver types.Type, methodName string) *types.Selection {
 	methodSet := lookup.methodSet.MethodSet(receiver)
 	searchedMethodType := methodSet.Lookup(pass.Pkg, methodName)
 
@@ -91,6 +84,18 @@ func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type,
 		}
 	}
 
+	return searchedMethodType
+}
+
+// searchMethod tries to find the correct function declaration for a method given the receiver type and method name.
+func (lookup *funcLookup) searchMethod(pass *analysis.Pass, receiver types.Type, methodName string) *ast.FuncDecl {
+	methods, ok := lookup.methods[methodName]
+	if !ok || len(methods) == 0 {
+		// Return early if there is no method in the current package with the given name
+		return nil
+	}
+
+	searchedMethodType := lookup.searchMethodType(pass, receiver, methodName)
 	if searchedMethodType == nil {
 		// Return early if there is no method matching receiver and name
 		return nil

@@ -5,6 +5,28 @@ import (
 	"interfaces/inner2"
 )
 
+type SimpleInterface interface { // want SimpleInterface:"ErrorInterface: SimpleInterfaceMethod"
+	// SimpleInterfaceMethod is a method returning an error with error codes declared in doc.
+	//
+	// Errors:
+	//
+	//    - interface-1-error -- could potentially be returned
+	//    - interface-2-error -- could potentially be returned
+	SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: interface-1-error interface-2-error"
+}
+
+type InvalidSimpleImpl struct{}
+
+// InterfaceMethod is a method used to implement SimpleInterface,
+// but the declared (and actual) error codes are not a subset of the ones declared in the interface.
+//
+// Errors:
+//
+//    - unkown-error -- is always returned making InvalidSimpleImpl an invalid implementation of the interface
+func (InvalidSimpleImpl) SimpleInterfaceMethod() error { // want SimpleInterfaceMethod:"ErrorCodes: unkown-error"
+	return &Error{"unkown-error"}
+}
+
 type SomeInterface interface { // want SomeInterface:"ErrorInterface: InterfaceMethod1 InterfaceMethod2"
 	// InterfaceMethod1 is a method returning an error with error codes declared in doc.
 	//
@@ -103,6 +125,18 @@ func (ImplementInner1Interface3) Inner1YesCodes() error { // want Inner1YesCodes
 	}
 	return &Error{"interface-2-error"}
 }
+
+func InvalidReturn() SimpleInterface {
+	return InvalidSimpleImpl{} // want "invalid"
+}
+
+func InvalidAssignment() *SimpleInterface {
+	var x SimpleInterface
+	x = InvalidSimpleImpl{} // want "invalid"
+	return &x
+}
+
+type SomeImpl struct{}
 
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
