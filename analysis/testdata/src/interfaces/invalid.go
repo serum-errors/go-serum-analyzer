@@ -60,3 +60,27 @@ func InvalidAssignment4() {
 			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
 	_, _ = u, v
 }
+
+func TakingSimpleInterface(_, _ int, _ SimpleInterface) {}
+
+func TakingSimpleInterfaceVariadic(_ int, _ ...SimpleInterface) {}
+
+func TakingSimpleInterfaceSlice(_ int, _ []SimpleInterface) {}
+
+func InvalidFunctionCall() {
+	param := InvalidSimpleImpl{}
+	TakingSimpleInterface(42, 42, param) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	TakingSimpleInterface(42, 42, nil)
+	TakingSimpleInterfaceVariadic(-5, nil, param)      // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	TakingSimpleInterfaceVariadic(-5, param, nil, nil) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	TakingSimpleInterfaceVariadic(-5, nil, nil, nil)
+
+	// Make sure slice parameters don't get confused with variadic.
+	TakingSimpleInterfaceSlice(7, []SimpleInterface{nil, nil})
+	TakingSimpleInterfaceSlice(7, nil)
+
+	var slice []SimpleInterface
+	slice = append(slice, param)           // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	slice = append(slice, nil, nil, param) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	slice = append(slice, nil, nil)
+}

@@ -185,6 +185,8 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		switch node := node.(type) {
 		case *ast.AssignStmt:
 			findConversionsInAssignStmt(pass, lookup, node)
+		case *ast.CallExpr:
+			findConversionsInCallExpr(pass, lookup, node)
 		case *ast.ReturnStmt:
 			if len(funcLitStack) > 0 {
 				findConversionsInReturnStmt(pass, lookup, node, funcLitStack[len(funcLitStack)-1].Type)
@@ -222,6 +224,59 @@ func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statem
 			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, exprType, statement.Rhs[0])
 		}
 	}
+}
+
+func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr) {
+	functionType := pass.TypesInfo.TypeOf(callExpr.Fun)
+	signature, ok := functionType.(*types.Signature)
+	if !ok {
+		// The given call expression is a type conversion.
+		findConversionsExplicit(pass, lookup, callExpr, functionType)
+	} else {
+		// The given call expression is a regular call to a function.
+		if signature.Params().Len() == 0 {
+			return
+		}
+
+		for i := 0; i < signature.Params().Len(); i++ {
+			paramType := signature.Params().At(i).Type()
+			errorInterface := importErrorInterfaceFact(pass, paramType)
+			if errorInterface == nil {
+				continue
+			}
+
+			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, paramType, callExpr.Args[i])
+
+			if signature.Variadic() && i == signature.Params().Len()-1 {
+				for j := signature.Params().Len(); j < len(callExpr.Args); j++ {
+					checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, paramType, callExpr.Args[j])
+				}
+			}
+		}
+
+		// Handle variadic parameters at the end of argument list.
+		if signature.Variadic() {
+			paramType := signature.Params().At(signature.Params().Len() - 1).Type()
+			sliceType, ok := paramType.(*types.Slice)
+			if !ok {
+				// This is the case for some append function calls with string type...
+				return
+			}
+
+			errorInterface := importErrorInterfaceFact(pass, sliceType.Elem())
+			if errorInterface == nil {
+				return
+			}
+
+			for i := signature.Params().Len() - 1; i < len(callExpr.Args); i++ {
+				checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, sliceType.Elem(), callExpr.Args[i])
+			}
+		}
+	}
+}
+
+func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr, targetType types.Type) {
+	// TODO
 }
 
 func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.ReturnStmt, within *ast.FuncType) {
@@ -287,6 +342,7 @@ func checkIfTypeIsValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLook
 
 		var implementedCodes ErrorCodes
 		if !pass.ImportObjectFact(methodType.Obj(), &implementedCodes) {
+			// TODO: Handle methods that are package intern and therefore don't need to declare error codes.
 			continue
 		}
 
