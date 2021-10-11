@@ -83,8 +83,78 @@ func InvalidFunctionCall() {
 	slice = append(slice, param)           // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	slice = append(slice, nil, nil, param) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	slice = append(slice, nil, nil)
+
+	lambda := func(_ SimpleInterface) {}
+	lambda(InvalidSimpleImpl{}) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 }
 
 func InvalidConversion() {
 	_ = SimpleInterface(InvalidSimpleImpl{}) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+}
+
+type BoxSimpleInterface struct {
+	si SimpleInterface
+}
+
+type Box2SimpleInterface struct {
+	_, _ int
+	_    SimpleInterface
+	_, _ SimpleInterface
+}
+
+type Box3SimpleInterface struct {
+	u, v int
+	x, y SimpleInterface
+}
+
+func InvalidStructCreation() {
+	_ = BoxSimpleInterface{InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = BoxSimpleInterface{nil}
+	_ = BoxSimpleInterface{si: InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = BoxSimpleInterface{si: nil}
+	_ = BoxSimpleInterface{}
+	_ = &BoxSimpleInterface{InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = Box2SimpleInterface{42, 5, InvalidSimpleImpl{}, nil, nil}                                 // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = Box2SimpleInterface{42, 5, nil, nil, InvalidSimpleImpl{}}                                 // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = Box2SimpleInterface{42, 5, InvalidSimpleImpl{}, InvalidSimpleImpl{}, InvalidSimpleImpl{}} /*
+		want
+			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
+	_ = Box2SimpleInterface{}
+
+	_ = Box3SimpleInterface{42, 5, nil, nil}
+	_ = Box3SimpleInterface{42, 5, nil, InvalidSimpleImpl{}}             // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = Box3SimpleInterface{u: 42, v: 5, x: nil, y: InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = []BoxSimpleInterface{
+		{si: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		{InvalidSimpleImpl{}},     // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		{si: nil},
+		{nil},
+		{},
+	}
+
+	_ = struct{ si SimpleInterface }{si: InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = struct{ si SimpleInterface }{InvalidSimpleImpl{}}     // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = struct{ si SimpleInterface }{si: nil}
+	_ = struct{ si SimpleInterface }{nil}
+	_ = struct{ si SimpleInterface }{}
+
+	_ = []struct{ si SimpleInterface }{
+		{si: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		{InvalidSimpleImpl{}},     // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		{si: nil},
+		{nil},
+		{},
+	}
+
+	_ = map[string]BoxSimpleInterface{
+		"a": {si: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		"b": {InvalidSimpleImpl{}},     // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		"c": {si: nil},
+		"d": {nil},
+		"e": {},
+	}
 }
