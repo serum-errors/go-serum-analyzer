@@ -193,7 +193,7 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 			return false // Were not interested in return statements of nested function literals
 		case *ast.ReturnStmt:
 			if node.Results == nil || len(node.Results) != 1 {
-				panic("Should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
+				panic("should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
 			}
 
 			// If the return statement returns a constant string value:

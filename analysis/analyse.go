@@ -315,12 +315,12 @@ func findErrorCodesInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State
 			if len(stmt.Results) == 0 {
 				resultTypes := funcDecl.Type.Results.List
 				if len(resultTypes) == 0 {
-					panic("Should be unreachable: we already know that the function signature contains an error result.")
+					panic("should be unreachable: we already know that the function signature contains an error result.")
 				}
 
 				resultIdents := resultTypes[len(resultTypes)-1].Names
 				if len(resultIdents) == 0 {
-					panic("Should be unreachable: an empty return statement requires either empty result list or named results.")
+					panic("should be unreachable: an empty return statement requires either empty result list or named results.")
 				}
 
 				resultExpression = resultIdents[len(resultIdents)-1]

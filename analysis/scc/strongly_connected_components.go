@@ -53,7 +53,7 @@ func (s *state) aState() {}
 
 func (s *state) Visit(node interface{}) {
 	if _, ok := s.vertices[node]; ok {
-		panic("Invalid call to Visit(node): given node was already visited.")
+		panic("invalid call to Visit(node): given node was already visited.")
 	}
 
 	v := &vertex{

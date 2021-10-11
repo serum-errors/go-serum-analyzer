@@ -159,7 +159,7 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		switch node := node.(type) {
 		case *ast.FuncDecl:
 			if len(funcLitStack) != 0 {
-				panic("Should never visit funcDecl when function literals are not completly handled.")
+				panic("should never visit funcDecl when function literals are not completly handled.")
 			}
 
 			if push {
@@ -172,7 +172,7 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 				funcLitStack = append(funcLitStack, node)
 			} else {
 				if len(funcLitStack) == 0 {
-					panic("Cannot remove function literal from stack, because stack was empty.")
+					panic("cannot remove function literal from stack, because stack was empty.")
 				}
 				funcLitStack = funcLitStack[:len(funcLitStack)-1]
 			}
@@ -189,7 +189,7 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 			} else if currentFunc != nil {
 				findConversionsInReturnStmt(pass, lookup, node, currentFunc.Type)
 			} else {
-				panic("Found unexpected return statement: returning outside of function or function literal.")
+				panic("found unexpected return statement: returning outside of function or function literal.")
 			}
 		}
 
@@ -236,7 +236,7 @@ func checkIfValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, er
 	for methodName, interfaceCodes := range errorInterface.ErrorMethods {
 		methodType := lookup.searchMethodType(pass, exprType, methodName)
 		if methodType == nil {
-			panic("Should be unreachable: the given expression was confirmed to implement the interface by the type checker.")
+			panic("should be unreachable: the given expression was confirmed to implement the interface by the type checker.")
 		}
 
 		var implementedCodes ErrorCodes
