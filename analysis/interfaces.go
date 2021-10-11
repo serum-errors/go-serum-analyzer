@@ -183,6 +183,8 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		}
 
 		switch node := node.(type) {
+		case *ast.AssignStmt:
+			findConversionsInAssignStmt(pass, lookup, node)
 		case *ast.ReturnStmt:
 			if len(funcLitStack) > 0 {
 				findConversionsInReturnStmt(pass, lookup, node, funcLitStack[len(funcLitStack)-1].Type)
@@ -196,6 +198,30 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		// Always recurse deeper.
 		return true
 	})
+}
+
+func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.AssignStmt) {
+	for i, lhsEntry := range statement.Lhs {
+		lhsType := pass.TypesInfo.TypeOf(lhsEntry)
+		errorInterface := importErrorInterfaceFact(pass, lhsType)
+		if errorInterface == nil {
+			continue
+		}
+
+		if len(statement.Lhs) == len(statement.Rhs) { // Rhs is comma separated
+			expression := statement.Rhs[i]
+			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, expression)
+		} else { // Rhs is a function call
+			callExpr := statement.Rhs[0]
+			callType, ok := pass.TypesInfo.TypeOf(callExpr).(*types.Tuple)
+			if !ok || i >= callType.Len() {
+				panic("should be unreachable: function call destructuring should always be of type tuple with sufficient length")
+			}
+
+			exprType := callType.At(i).Type()
+			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, exprType, statement.Rhs[0])
+		}
+	}
 }
 
 func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.ReturnStmt, within *ast.FuncType) {
@@ -213,13 +239,11 @@ func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statem
 		}
 
 		resultType := pass.TypesInfo.TypeOf(resultField.Type)
-		namedType := getNamedType(resultType)
-
-		var errorInterface ErrorInterface
-		if namedType != nil && pass.ImportObjectFact(namedType.Obj(), &errorInterface) {
+		errorInterface := importErrorInterfaceFact(pass, resultType)
+		if errorInterface != nil {
 			for i := position; i < nextPosition; i++ {
 				expression := statement.Results[i]
-				checkIfValidSubtypeForInterface(pass, lookup, &errorInterface, resultType, expression)
+				checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, resultType, expression)
 			}
 		}
 
@@ -227,9 +251,31 @@ func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statem
 	}
 }
 
-func checkIfValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, errorInterface *ErrorInterface, interfaceType types.Type, expression ast.Expr) {
+// importErrorInterfaceFact imports and returns the ErrorInterface fact for the given type,
+// or returns nil if no such fact exists.
+func importErrorInterfaceFact(pass *analysis.Pass, interfaceType types.Type) *ErrorInterface {
+	result := new(ErrorInterface)
+	namedType := getNamedType(interfaceType)
+	if namedType != nil && pass.ImportObjectFact(namedType.Obj(), result) {
+		return result
+	}
+	return nil
+}
+
+func checkIfExprHasValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, errorInterface *ErrorInterface, interfaceType types.Type, expression ast.Expr) {
 	exprType := pass.TypesInfo.TypeOf(expression)
+	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, interfaceType, exprType, expression)
+}
+
+func checkIfTypeIsValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, errorInterface *ErrorInterface, interfaceType types.Type, exprType types.Type, exprPos analysis.Range) {
+	// If the types are identical, then declared error codes are also identical.
 	if types.Identical(exprType, interfaceType) {
+		return
+	}
+
+	// Nil values are always ok.
+	basicType, ok := exprType.(*types.Basic)
+	if ok && basicType.Kind() == types.UntypedNil {
 		return
 	}
 
@@ -247,7 +293,7 @@ func checkIfValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, er
 		unexpectedCodes := difference(sliceToSet(implementedCodes.Codes), interfaceCodes)
 		if len(unexpectedCodes) > 0 {
 			namedType := getNamedType(interfaceType)
-			pass.ReportRangef(expression, "cannot use expression as %q value in return statement: method %q declares the following error codes which were not part of the interface: %v", namedType.Obj().Name(), methodName, unexpectedCodes.slice())
+			pass.ReportRangef(exprPos, "cannot use expression as %q value: method %q declares the following error codes which were not part of the interface: %v", namedType.Obj().Name(), methodName, unexpectedCodes.slice())
 		}
 	}
 }
