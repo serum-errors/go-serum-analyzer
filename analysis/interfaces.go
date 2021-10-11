@@ -276,7 +276,16 @@ func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr
 }
 
 func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr, targetType types.Type) {
-	// TODO
+	errorInterface := importErrorInterfaceFact(pass, targetType)
+	if errorInterface == nil {
+		return
+	}
+
+	if len(callExpr.Args) != 1 {
+		panic("should be unreachable: type conversion may only have one parameter")
+	}
+
+	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, callExpr.Args[0])
 }
 
 func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.ReturnStmt, within *ast.FuncType) {
