@@ -141,6 +141,7 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 // Conversions can happen in many statements and expressions:
 // Explicit:
 //     - Conversion to Interface
+//     - Type Assertion
 // Implicit:
 //     - Assignment
 //     - Function Call
@@ -150,6 +151,7 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 //         - Slice Creation
 //         - Map Creation
 //     - Return Statement
+//     - Map Index
 func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *funcLookup) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
@@ -188,6 +190,10 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 			findConversionsInAssignStmt(pass, lookup, node)
 		case *ast.CallExpr:
 			findConversionsInCallExpr(pass, lookup, node)
+		case *ast.TypeAssertExpr:
+			findConversionsInTypeAssertExpr(pass, lookup, node)
+		case *ast.IndexExpr:
+			findConversionsInIndexExpr(pass, lookup, node)
 		case *ast.CompositeLit:
 			findConversionsInCompositeLit(pass, lookup, node)
 		case *ast.ReturnStmt:
@@ -289,6 +295,36 @@ func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *
 	}
 
 	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, callExpr.Args[0])
+}
+
+func findConversionsInTypeAssertExpr(pass *analysis.Pass, lookup *funcLookup, typeAssertExpr *ast.TypeAssertExpr) {
+	if typeAssertExpr.Type == nil {
+		return // Ignore all "switch X.(type) { ... }" kind of type assertions.
+	}
+
+	targetType := pass.TypesInfo.TypeOf(typeAssertExpr.Type)
+	errorInterface := importErrorInterfaceFact(pass, targetType)
+	if errorInterface == nil {
+		return
+	}
+
+	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, typeAssertExpr.X)
+}
+
+func findConversionsInIndexExpr(pass *analysis.Pass, lookup *funcLookup, indexExpr *ast.IndexExpr) {
+	mapType, ok := pass.TypesInfo.TypeOf(indexExpr.X).(*types.Map)
+	if !ok {
+		// indexExpr.X can be a map or any of slice, array, pointer to array, or string.
+		// In case it is not a map, the index will be an integer and not relevant for the following checks.
+		return
+	}
+
+	errorInterface := importErrorInterfaceFact(pass, mapType.Key())
+	if errorInterface == nil {
+		return
+	}
+
+	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, mapType.Key(), indexExpr.Index)
 }
 
 func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit) {

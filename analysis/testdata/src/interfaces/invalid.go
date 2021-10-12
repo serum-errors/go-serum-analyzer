@@ -88,8 +88,30 @@ func InvalidFunctionCall() {
 	lambda(InvalidSimpleImpl{}) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 }
 
-func InvalidConversion() {
+func InvalidMapIndex(m map[SimpleInterface]struct{}, slice []struct{}) {
+	_ = m[InvalidSimpleImpl{}] // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = m[nil]
+	_ = slice[7] // making sure indexing something other than a map does not fail
+}
+
+type SimpleInterfaceIncompatible interface { // want SimpleInterfaceIncompatible:"ErrorInterface: SimpleInterfaceMethod"
+	// SimpleInterfaceMethod is a method returning an error with error codes declared in doc.
+	//
+	// Errors:
+	//
+	//    - interface-1-error    -- could potentially be returned
+	//    - incompatible-1-error -- could potentially be returned
+	//    - incompatible-2-error -- could potentially be returned
+	SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: incompatible-1-error incompatible-2-error interface-1-error"
+}
+
+func InvalidConversion(incompatible SimpleInterfaceIncompatible) {
 	_ = SimpleInterface(InvalidSimpleImpl{}) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = SimpleInterface(nil)
+	_ = SimpleInterface(incompatible)       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
+	_ = incompatible.(SimpleInterface)      // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
+	s, ok := incompatible.(SimpleInterface) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
+	_, _ = s, ok
 }
 
 type BoxSimpleInterface struct {
