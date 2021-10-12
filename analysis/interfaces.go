@@ -307,9 +307,12 @@ func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, comp
 	case *types.Struct:
 		findConversionsInStructLit(pass, lookup, composite, exprType)
 	case *types.Slice:
-		findConversionsInSliceOrArrayLit(pass, lookup, composite, exprType.Elem())
+		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
 	case *types.Array:
-		findConversionsInSliceOrArrayLit(pass, lookup, composite, exprType.Elem())
+		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
+	case *types.Map:
+		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
+		findConversionsInMapLitKeys(pass, lookup, composite, exprType.Key())
 	default:
 		logf("composite lit type not handled in findConversionsInCompositeLit: %#v\n", exprType)
 	}
@@ -343,7 +346,7 @@ func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composi
 	}
 }
 
-func findConversionsInSliceOrArrayLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, elemType types.Type) {
+func findConversionsInCompositeValues(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, elemType types.Type) {
 	errorInterface := importErrorInterfaceFact(pass, elemType)
 	if errorInterface == nil {
 		return
@@ -354,6 +357,18 @@ func findConversionsInSliceOrArrayLit(pass *analysis.Pass, lookup *funcLookup, c
 			element = keyedElement.Value // key is not relevant for the following check
 		}
 		checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, elemType, element)
+	}
+}
+
+func findConversionsInMapLitKeys(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, keyType types.Type) {
+	errorInterface := importErrorInterfaceFact(pass, keyType)
+	if errorInterface == nil {
+		return
+	}
+
+	for _, element := range composite.Elts {
+		keyedElement := element.(*ast.KeyValueExpr) // all elements have to be key-value, because it's a map
+		checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, keyType, keyedElement.Key)
 	}
 }
 

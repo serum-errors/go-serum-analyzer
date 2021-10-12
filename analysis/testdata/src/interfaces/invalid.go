@@ -260,3 +260,66 @@ func InvalidArrayCreation() {
 	}
 	_ = []interfaceArray2{{nil, InvalidSimpleImpl{}}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 }
+
+type interfaceMap map[int]SimpleInterface
+type interfaceMap2 interfaceSlice
+
+func InvalidMapCreation() {
+	_ = map[string]SimpleInterface{}
+	_ = map[string]SimpleInterface{"a": nil, "b": nil}
+	_ = map[string]SimpleInterface{"x": nil, "y": InvalidSimpleImpl{}, "z": nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	const index = 40 + 2
+	_ = map[int]SimpleInterface{
+		4:     nil,
+		1:     InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		2:     nil,
+		3:     nil,
+		300:   InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		index: InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+
+	_ = interfaceMap{}
+	_ = interfaceMap{3: nil}
+	_ = interfaceMap{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = interfaceMap2{}
+	_ = interfaceMap2{7: nil}
+	_ = interfaceMap2{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = map[string]map[int]map[int]SimpleInterface{
+		"a": {
+			0: {4: nil, 42: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			1: {},
+			2: {5: nil},
+		},
+		"b": {
+			7: {},
+			8: {8: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		},
+	}
+	_ = map[string]interfaceMap2{"index": {0: nil, 5: InvalidSimpleImpl{}}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = map[SimpleInterface]int{}
+	_ = map[SimpleInterface]int{
+		InvalidSimpleImpl{}: 5, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+	_ = map[SimpleInterface]int{
+		nil:                 42,
+		InvalidSimpleImpl{}: 5, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		nil:                 3,
+	}
+
+	_ = map[SimpleInterface]SimpleInterface{
+		nil:                 InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		InvalidSimpleImpl{}: nil,                 // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		InvalidSimpleImpl{}: InvalidSimpleImpl{}, /*
+			want
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
+	}
+
+	_ = map[string][]SimpleInterface{
+		"index": {InvalidSimpleImpl{}, nil}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+}
