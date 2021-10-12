@@ -147,6 +147,7 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 //     - Composite Literal:
 //         - Struct Creation
 //         - Array Creation
+//         - Slice Creation
 //         - Map Creation
 //     - Return Statement
 func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *funcLookup) {
@@ -305,6 +306,12 @@ func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, comp
 	switch exprType := exprType.(type) {
 	case *types.Struct:
 		findConversionsInStructLit(pass, lookup, composite, exprType)
+	case *types.Slice:
+		findConversionsInSliceOrArrayLit(pass, lookup, composite, exprType.Elem())
+	case *types.Array:
+		findConversionsInSliceOrArrayLit(pass, lookup, composite, exprType.Elem())
+	default:
+		logf("composite lit type not handled in findConversionsInCompositeLit: %#v\n", exprType)
 	}
 }
 
@@ -333,6 +340,20 @@ func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composi
 				}
 			}
 		}
+	}
+}
+
+func findConversionsInSliceOrArrayLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, elemType types.Type) {
+	errorInterface := importErrorInterfaceFact(pass, elemType)
+	if errorInterface == nil {
+		return
+	}
+
+	for _, element := range composite.Elts {
+		if keyedElement, ok := element.(*ast.KeyValueExpr); ok {
+			element = keyedElement.Value // key is not relevant for the following check
+		}
+		checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, elemType, element)
 	}
 }
 

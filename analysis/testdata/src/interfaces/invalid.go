@@ -160,3 +160,103 @@ func InvalidStructCreation() {
 		"e": {},
 	}
 }
+
+type interfaceSlice []SimpleInterface
+type interfaceSlice2 interfaceSlice
+
+func InvalidSliceCreation() {
+	_ = []SimpleInterface{}
+	_ = []SimpleInterface{nil, nil, nil}
+	_ = []SimpleInterface{nil, InvalidSimpleImpl{}, nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = []SimpleInterface{
+		nil,
+		InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		nil,
+		nil,
+		InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+
+	const index = 40 + 2
+	_ = []SimpleInterface{
+		4:     nil,
+		1:     InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		2:     nil,
+		3:     nil,
+		300:   InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		index: InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+
+	_ = interfaceSlice{}
+	_ = interfaceSlice{nil}
+	_ = interfaceSlice{InvalidSimpleImpl{}, nil}       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = interfaceSlice{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = interfaceSlice2{}
+	_ = interfaceSlice2{nil}
+	_ = interfaceSlice2{InvalidSimpleImpl{}, nil}       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = interfaceSlice2{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = [][][]SimpleInterface{
+		{
+			{nil, InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			{},
+			{nil},
+		},
+		{
+			7:                     {},
+			8:                     {8: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			{InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		},
+	}
+	_ = []interfaceSlice2{{nil, nil, InvalidSimpleImpl{}}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+}
+
+type interfaceArray [2]SimpleInterface
+type interfaceArray2 interfaceSlice
+
+func InvalidArrayCreation() {
+	_ = [0]SimpleInterface{}
+	_ = [3]SimpleInterface{nil, nil, nil}
+	_ = [3]SimpleInterface{nil, InvalidSimpleImpl{}, nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = [...]SimpleInterface{
+		nil,
+		InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		nil,
+		nil,
+		InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+
+	const index = 40 + 2
+	_ = [...]SimpleInterface{
+		4:     nil,
+		1:     InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		2:     nil,
+		3:     nil,
+		300:   InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		index: InvalidSimpleImpl{}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	}
+
+	_ = interfaceArray{}
+	_ = interfaceArray{nil}
+	_ = interfaceArray{InvalidSimpleImpl{}, nil}       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = interfaceArray{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = interfaceArray2{}
+	_ = interfaceArray2{nil}
+	_ = interfaceArray2{InvalidSimpleImpl{}, nil}       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = interfaceArray2{1: InvalidSimpleImpl{}, 0: nil} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+
+	_ = [...][10][10]SimpleInterface{
+		{
+			{nil, InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			{},
+			{nil},
+		},
+		{
+			7:                     {},
+			8:                     {8: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			{InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		},
+	}
+	_ = []interfaceArray2{{nil, InvalidSimpleImpl{}}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+}
