@@ -127,6 +127,8 @@ func InvalidStructCreation() {
 	_ = Box3SimpleInterface{42, 5, nil, nil}
 	_ = Box3SimpleInterface{42, 5, nil, InvalidSimpleImpl{}}             // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	_ = Box3SimpleInterface{u: 42, v: 5, x: nil, y: InvalidSimpleImpl{}} // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = Box3SimpleInterface{u: 42, x: nil, y: InvalidSimpleImpl{}}       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	_ = Box3SimpleInterface{u: 42}
 
 	_ = []BoxSimpleInterface{
 		{si: InvalidSimpleImpl{}}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`

@@ -187,6 +187,8 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 			findConversionsInAssignStmt(pass, lookup, node)
 		case *ast.CallExpr:
 			findConversionsInCallExpr(pass, lookup, node)
+		case *ast.CompositeLit:
+			findConversionsInCompositeLit(pass, lookup, node)
 		case *ast.ReturnStmt:
 			if len(funcLitStack) > 0 {
 				findConversionsInReturnStmt(pass, lookup, node, funcLitStack[len(funcLitStack)-1].Type)
@@ -227,6 +229,10 @@ func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statem
 }
 
 func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr) {
+	if len(callExpr.Args) == 0 {
+		return
+	}
+
 	functionType := pass.TypesInfo.TypeOf(callExpr.Fun)
 	signature, ok := functionType.(*types.Signature)
 	if !ok {
@@ -234,10 +240,6 @@ func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr
 		findConversionsExplicit(pass, lookup, callExpr, functionType)
 	} else {
 		// The given call expression is a regular call to a function.
-		if signature.Params().Len() == 0 {
-			return
-		}
-
 		for i := 0; i < signature.Params().Len(); i++ {
 			paramType := signature.Params().At(i).Type()
 			errorInterface := importErrorInterfaceFact(pass, paramType)
@@ -286,6 +288,52 @@ func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *
 	}
 
 	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, callExpr.Args[0])
+}
+
+func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit) {
+	if len(composite.Elts) == 0 {
+		return
+	}
+
+	exprType := pass.TypesInfo.TypeOf(composite)
+
+	// Unpack named type to find actual type.
+	if namedType, ok := exprType.(*types.Named); ok {
+		exprType = namedType.Underlying()
+	}
+
+	switch exprType := exprType.(type) {
+	case *types.Struct:
+		findConversionsInStructLit(pass, lookup, composite, exprType)
+	}
+}
+
+func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, structType *types.Struct) {
+	if len(composite.Elts) == 0 {
+		return
+	}
+
+	for i := 0; i < structType.NumFields(); i++ {
+		field := structType.Field(i)
+		fieldType := field.Type()
+		errorInterface := importErrorInterfaceFact(pass, fieldType)
+		if errorInterface == nil {
+			continue
+		}
+
+		if _, ok := composite.Elts[0].(*ast.KeyValueExpr); !ok { // struct creation has positional arguments
+			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, fieldType, composite.Elts[i])
+		} else { // struct creation has keyed arguments
+			for _, expr := range composite.Elts {
+				exprKeyed := expr.(*ast.KeyValueExpr) // if one element is key-value, all have to be
+				key := exprKeyed.Key.(*ast.Ident)
+				if key.Name == field.Name() {
+					checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, fieldType, exprKeyed.Value)
+					break
+				}
+			}
+		}
+	}
 }
 
 func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.ReturnStmt, within *ast.FuncType) {
