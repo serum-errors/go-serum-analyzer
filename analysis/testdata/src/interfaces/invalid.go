@@ -375,3 +375,73 @@ func InvalidMapCreation() {
 		"index": {InvalidSimpleImpl{}, nil}, // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	}
 }
+
+func InvalidForRange(
+	slice []InvalidSimpleImpl,
+	m1 map[InvalidSimpleImpl]struct{},
+	m2 map[string]InvalidSimpleImpl,
+	m3 map[InvalidSimpleImpl]InvalidSimpleImpl,
+	array [5]InvalidSimpleImpl,
+	pa *[5]InvalidSimpleImpl,
+	c chan InvalidSimpleImpl,
+) {
+	var si SimpleInterface
+	for _, si = range slice { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for i := range slice {
+		_ = i
+	}
+
+	for _, si = range array { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for i := range array {
+		_ = i
+	}
+
+	for _, si = range pa { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for i := range pa {
+		_ = i
+	}
+
+	for si, _ = range m1 { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for si = range m1 { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for _, si = range m2 { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	var si2 SimpleInterface
+	for si, si2 = range m3 { /*
+			want
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
+		_, _ = si, si2
+	}
+
+	for si, si = range m3 { /*
+			want
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+				`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
+		_ = si
+	}
+
+	for si = range m3 { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for si = range c { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+}

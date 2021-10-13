@@ -206,6 +206,9 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 			} else {
 				panic("found unexpected return statement: returning outside of function or function literal.")
 			}
+		case *ast.RangeStmt:
+			findConversionsInRangeStmtKey(pass, lookup, node)
+			findConversionsInRangeStmtValue(pass, lookup, node)
 		}
 
 		// Always recurse deeper.
@@ -464,6 +467,54 @@ func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statem
 
 		position = nextPosition
 	}
+}
+
+func findConversionsInRangeStmtKey(pass *analysis.Pass, lookup *funcLookup, statement *ast.RangeStmt) {
+	if statement.Key == nil {
+		return
+	}
+
+	keyType := pass.TypesInfo.TypeOf(statement.Key)
+	errorInterface := importErrorInterfaceFact(pass, keyType)
+	if errorInterface == nil {
+		return
+	}
+
+	var exprType types.Type
+	switch rhsType := pass.TypesInfo.TypeOf(statement.X).(type) { // has to be: map or channel
+	case *types.Map:
+		exprType = rhsType.Key()
+	case *types.Chan:
+		exprType = rhsType.Elem()
+	default:
+		logf("unexpected type: %#v\n", rhsType)
+		panic("unexpected type in for-range statement")
+	}
+
+	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, keyType, exprType, statement.X)
+}
+
+func findConversionsInRangeStmtValue(pass *analysis.Pass, lookup *funcLookup, statement *ast.RangeStmt) {
+	if statement.Key == nil {
+		return
+	}
+
+	valueType := pass.TypesInfo.TypeOf(statement.Value)
+	errorInterface := importErrorInterfaceFact(pass, valueType)
+	if errorInterface == nil {
+		return
+	}
+
+	var exprType types.Type
+	switch rhsType := pass.TypesInfo.TypeOf(statement.X).(type) { // has to be: pointer to array, array, slice, or map
+	case *types.Pointer:
+		arrayType := rhsType.Elem().(*types.Array)
+		exprType = arrayType.Elem()
+	default:
+		exprType = rhsType.(interface{ Elem() types.Type }).Elem()
+	}
+
+	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, valueType, exprType, statement.X)
 }
 
 // importErrorInterfaceFact imports and returns the ErrorInterface fact for the given type,
