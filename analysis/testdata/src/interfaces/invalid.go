@@ -135,13 +135,27 @@ type SimpleInterfaceIncompatible interface { // want SimpleInterfaceIncompatible
 	SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: incompatible-1-error incompatible-2-error interface-1-error"
 }
 
-func InvalidConversion(incompatible SimpleInterfaceIncompatible) {
+type RandomInterface interface {
+	RandomMethod()
+}
+
+func InvalidConversion(incompatible SimpleInterfaceIncompatible, bs RandomInterface) {
 	_ = SimpleInterface(InvalidSimpleImpl{}) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	_ = SimpleInterface(nil)
 	_ = SimpleInterface(incompatible)       // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
 	_ = incompatible.(SimpleInterface)      // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
 	s, ok := incompatible.(SimpleInterface) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
 	_, _ = s, ok
+
+	// TODO: the following is a known loophole
+	var si SimpleInterface
+	switch val := incompatible.(type) {
+	case RandomInterface:
+		_ = val
+	case SimpleInterface: // want "invalid"
+		si = val
+	}
+	_ = si
 }
 
 type BoxSimpleInterface struct {
@@ -442,6 +456,34 @@ func InvalidForRange(
 	}
 
 	for si = range c { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+}
+
+func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface) {
+	var si SimpleInterface = <-c // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	var some = <-c               // no problem
+	c <- InvalidSimpleImpl{}     // no problem
+	c <- some                    // no problem
+	csi <- InvalidSimpleImpl{}   // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	csi <- <-c                   // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	csi <- si                    // no problem
+
+	// Same cases but this time in a select statement:
+	select {
+	case si = <-c: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	case some = <-c:
+		_ = si
+	case c <- InvalidSimpleImpl{}:
+		_ = si
+	case c <- some:
+		_ = si
+	case csi <- InvalidSimpleImpl{}: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	case csi <- <-c: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	case csi <- si:
 		_ = si
 	}
 }

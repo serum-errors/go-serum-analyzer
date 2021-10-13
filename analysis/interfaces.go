@@ -209,6 +209,8 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		case *ast.RangeStmt:
 			findConversionsInRangeStmtKey(pass, lookup, node)
 			findConversionsInRangeStmtValue(pass, lookup, node)
+		case *ast.SendStmt:
+			findConversionsInSendStmt(pass, lookup, node)
 		}
 
 		// Always recurse deeper.
@@ -515,6 +517,16 @@ func findConversionsInRangeStmtValue(pass *analysis.Pass, lookup *funcLookup, st
 	}
 
 	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, valueType, exprType, statement.X)
+}
+
+func findConversionsInSendStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.SendStmt) {
+	chanType := pass.TypesInfo.TypeOf(statement.Chan).(*types.Chan)
+	errorInterface := importErrorInterfaceFact(pass, chanType.Elem())
+	if errorInterface == nil {
+		return
+	}
+
+	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, chanType.Elem(), statement.Value)
 }
 
 // importErrorInterfaceFact imports and returns the ErrorInterface fact for the given type,
