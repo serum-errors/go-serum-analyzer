@@ -577,13 +577,22 @@ func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInte
 			panic("should be unreachable: the given expression was confirmed to implement the interface by the type checker.")
 		}
 
+		var foundCodes codeSet
 		var implementedCodes ErrorCodes
-		if !pass.ImportObjectFact(methodType.Obj(), &implementedCodes) {
-			// TODO: Handle methods that are package intern and therefore don't need to declare error codes.
-			continue
+		// Try to get error codes from fact.
+		if pass.ImportObjectFact(methodType.Obj(), &implementedCodes) {
+			foundCodes = sliceToSet(implementedCodes.Codes)
+		} else {
+			// Failed: Could be a non-exported function.
+			var ok bool
+			methodDecl := lookup.searchMethod(pass, exprType, methodName)
+			foundCodes, ok = lookup.foundCodes[methodDecl]
+			if !ok {
+				foundCodes = findErrorCodesInFunc(c, methodDecl)
+			}
 		}
 
-		unexpectedCodes := difference(sliceToSet(implementedCodes.Codes), interfaceCodes)
+		unexpectedCodes := difference(foundCodes, interfaceCodes)
 		if len(unexpectedCodes) > 0 {
 			namedType := getNamedType(interfaceType)
 			unexpectedCodes := unexpectedCodes.slice()

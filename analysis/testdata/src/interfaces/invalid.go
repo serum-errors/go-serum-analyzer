@@ -2,6 +2,11 @@ package interfaces
 
 type InvalidSimpleImpl struct{}
 
+type InterFaceWithoutErrorCodeDeclarations interface {
+	ExportedCodeNotDeclared() error // want `interface method "ExportedCodeNotDeclared" does not declare any error codes`
+	localCodeNotDeclared() error    // want `interface method "localCodeNotDeclared" does not declare any error codes`
+}
+
 // InterfaceMethod is a method used to implement SimpleInterface,
 // but the declared (and actual) error codes are not a subset of the ones declared in the interface.
 //
@@ -486,4 +491,50 @@ func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface)
 	case csi <- si:
 		_ = si
 	}
+}
+
+type (
+	someLocalInterface interface { // want someLocalInterface:"ErrorInterface: local1 local2"
+		// Errors:
+		//
+		//    - local-1-error --
+		//    - local-2-error --
+		local1() error // want local1:"ErrorCodes: local-1-error local-2-error"
+
+		// Errors:
+		//
+		//    - local-3-error --
+		//    - local-4-error --
+		local2() error // want local2:"ErrorCodes: local-3-error local-4-error"
+
+		local3() error // want `interface method "local3" does not declare any error codes`
+	}
+
+	someLocalInterfaceInvalidImpl struct{}
+)
+
+func (someLocalInterfaceInvalidImpl) local1() error {
+	return &Error{"unknown-error"}
+}
+
+func (someLocalInterfaceInvalidImpl) local2() error {
+	switch {
+	case true:
+		return &Error{"some-1-error"}
+	case true:
+		return &Error{"local-3-error"} // this one is ok
+	}
+	return &Error{"some-2-error"}
+}
+
+func (someLocalInterfaceInvalidImpl) local3() error {
+	return &Error{"unknown-error"}
+}
+
+func InvalidLocalImplementation() {
+	var local someLocalInterface = someLocalInterfaceInvalidImpl{} /*
+		want
+			`cannot use expression as "someLocalInterface" value: method "local1" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "someLocalInterface" value: method "local2" declares the following error codes which were not part of the interface: \[some-1-error some-2-error]` */
+	_ = local
 }
