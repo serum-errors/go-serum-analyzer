@@ -188,6 +188,8 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 		switch node := node.(type) {
 		case *ast.AssignStmt:
 			findConversionsInAssignStmt(pass, lookup, node)
+		case *ast.ValueSpec:
+			findConversionsInValueSpec(pass, lookup, node)
 		case *ast.CallExpr:
 			findConversionsInCallExpr(pass, lookup, node)
 		case *ast.TypeAssertExpr:
@@ -230,7 +232,36 @@ func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statem
 			}
 
 			exprType := callType.At(i).Type()
-			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, exprType, statement.Rhs[0])
+			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, exprType, callExpr)
+		}
+	}
+}
+
+func findConversionsInValueSpec(pass *analysis.Pass, lookup *funcLookup, spec *ast.ValueSpec) {
+	if len(spec.Values) == 0 || spec.Type == nil {
+		return
+	}
+
+	specType := pass.TypesInfo.TypeOf(spec.Type)
+	errorInterface := importErrorInterfaceFact(pass, specType)
+	if errorInterface == nil {
+		return
+	}
+
+	if len(spec.Names) == len(spec.Values) { // right hand side is comma separated
+		for _, value := range spec.Values {
+			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, specType, value)
+		}
+	} else { // right hand side is a function call
+		callExpr := spec.Values[0]
+		callType, ok := pass.TypesInfo.TypeOf(callExpr).(*types.Tuple)
+		if !ok {
+			panic("should be unreachable: function call destructuring should always be of type tuple with sufficient length")
+		}
+
+		for i := range spec.Names {
+			exprType := callType.At(i).Type()
+			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, specType, exprType, callExpr)
 		}
 	}
 }
@@ -478,7 +509,9 @@ func checkIfTypeIsValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLook
 		unexpectedCodes := difference(sliceToSet(implementedCodes.Codes), interfaceCodes)
 		if len(unexpectedCodes) > 0 {
 			namedType := getNamedType(interfaceType)
-			pass.ReportRangef(exprPos, "cannot use expression as %q value: method %q declares the following error codes which were not part of the interface: %v", namedType.Obj().Name(), methodName, unexpectedCodes.slice())
+			unexpectedCodes := unexpectedCodes.slice()
+			sort.Strings(unexpectedCodes)
+			pass.ReportRangef(exprPos, "cannot use expression as %q value: method %q declares the following error codes which were not part of the interface: %v", namedType.Obj().Name(), methodName, unexpectedCodes)
 		}
 	}
 }

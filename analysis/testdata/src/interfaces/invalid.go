@@ -61,6 +61,36 @@ func InvalidAssignment4() {
 	_, _ = u, v
 }
 
+func InvalidAssignment5() {
+	var x1 SimpleInterface = InvalidSimpleImpl{}                  // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	var x2, x3, _ SimpleInterface = nil, InvalidSimpleImpl{}, nil // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	var x4, _ SimpleInterface = ReturnTwoInvalidSimpleImpl()      /*
+		want
+			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]` */
+	_, _, _, _ = x1, x2, x3, x4
+}
+
+func InvalidAssignment6(m map[int]InvalidSimpleImpl) {
+	var si SimpleInterface
+	var ok bool
+	if si = m[0]; true { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+	if si, ok = m[0]; ok { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	for si, ok = m[0]; ok; { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	}
+
+	switch si, ok = m[0]; { // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	case ok:
+		_ = si
+	}
+}
+
 func TakingSimpleInterface(_, _ int, _ SimpleInterface) {}
 
 func TakingSimpleInterfaceVariadic(_ int, _ ...SimpleInterface) {}
