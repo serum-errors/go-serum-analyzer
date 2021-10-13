@@ -152,8 +152,10 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 //         - Map Creation
 //     - Return Statement
 //     - Map Index
-func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *funcLookup) {
-	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+//     - Range Statement
+//     - Channel Send
+func findConversionsToErrorReturningInterfaces(c *context) {
+	inspect := c.pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	var currentFunc *ast.FuncDecl
 	var funcLitStack []*ast.FuncLit
@@ -187,30 +189,30 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 
 		switch node := node.(type) {
 		case *ast.AssignStmt:
-			findConversionsInAssignStmt(pass, lookup, node)
+			findConversionsInAssignStmt(c, node)
 		case *ast.ValueSpec:
-			findConversionsInValueSpec(pass, lookup, node)
+			findConversionsInValueSpec(c, node)
 		case *ast.CallExpr:
-			findConversionsInCallExpr(pass, lookup, node)
+			findConversionsInCallExpr(c, node)
 		case *ast.TypeAssertExpr:
-			findConversionsInTypeAssertExpr(pass, lookup, node)
+			findConversionsInTypeAssertExpr(c, node)
 		case *ast.IndexExpr:
-			findConversionsInIndexExpr(pass, lookup, node)
+			findConversionsInIndexExpr(c, node)
 		case *ast.CompositeLit:
-			findConversionsInCompositeLit(pass, lookup, node)
+			findConversionsInCompositeLit(c, node)
 		case *ast.ReturnStmt:
 			if len(funcLitStack) > 0 {
-				findConversionsInReturnStmt(pass, lookup, node, funcLitStack[len(funcLitStack)-1].Type)
+				findConversionsInReturnStmt(c, node, funcLitStack[len(funcLitStack)-1].Type)
 			} else if currentFunc != nil {
-				findConversionsInReturnStmt(pass, lookup, node, currentFunc.Type)
+				findConversionsInReturnStmt(c, node, currentFunc.Type)
 			} else {
 				panic("found unexpected return statement: returning outside of function or function literal.")
 			}
 		case *ast.RangeStmt:
-			findConversionsInRangeStmtKey(pass, lookup, node)
-			findConversionsInRangeStmtValue(pass, lookup, node)
+			findConversionsInRangeStmtKey(c, node)
+			findConversionsInRangeStmtValue(c, node)
 		case *ast.SendStmt:
-			findConversionsInSendStmt(pass, lookup, node)
+			findConversionsInSendStmt(c, node)
 		}
 
 		// Always recurse deeper.
@@ -218,7 +220,9 @@ func findConversionsToErrorReturningInterfaces(pass *analysis.Pass, lookup *func
 	})
 }
 
-func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.AssignStmt) {
+func findConversionsInAssignStmt(c *context, statement *ast.AssignStmt) {
+	pass := c.pass
+
 	for i, lhsEntry := range statement.Lhs {
 		lhsType := pass.TypesInfo.TypeOf(lhsEntry)
 		errorInterface := importErrorInterfaceFact(pass, lhsType)
@@ -228,7 +232,7 @@ func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statem
 
 		if len(statement.Lhs) == len(statement.Rhs) { // Rhs is comma separated
 			expression := statement.Rhs[i]
-			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, expression)
+			checkIfExprHasValidSubtypeForInterface(c, errorInterface, lhsType, expression)
 		} else { // Rhs is a function call
 			callExpr := statement.Rhs[0]
 			callType, ok := pass.TypesInfo.TypeOf(callExpr).(*types.Tuple)
@@ -237,16 +241,17 @@ func findConversionsInAssignStmt(pass *analysis.Pass, lookup *funcLookup, statem
 			}
 
 			exprType := callType.At(i).Type()
-			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, lhsType, exprType, callExpr)
+			checkIfTypeIsValidSubtypeForInterface(c, errorInterface, lhsType, exprType, callExpr)
 		}
 	}
 }
 
-func findConversionsInValueSpec(pass *analysis.Pass, lookup *funcLookup, spec *ast.ValueSpec) {
+func findConversionsInValueSpec(c *context, spec *ast.ValueSpec) {
 	if len(spec.Values) == 0 || spec.Type == nil {
 		return
 	}
 
+	pass := c.pass
 	specType := pass.TypesInfo.TypeOf(spec.Type)
 	errorInterface := importErrorInterfaceFact(pass, specType)
 	if errorInterface == nil {
@@ -255,7 +260,7 @@ func findConversionsInValueSpec(pass *analysis.Pass, lookup *funcLookup, spec *a
 
 	if len(spec.Names) == len(spec.Values) { // right hand side is comma separated
 		for _, value := range spec.Values {
-			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, specType, value)
+			checkIfExprHasValidSubtypeForInterface(c, errorInterface, specType, value)
 		}
 	} else { // right hand side is a function call
 		callExpr := spec.Values[0]
@@ -266,21 +271,22 @@ func findConversionsInValueSpec(pass *analysis.Pass, lookup *funcLookup, spec *a
 
 		for i := range spec.Names {
 			exprType := callType.At(i).Type()
-			checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, specType, exprType, callExpr)
+			checkIfTypeIsValidSubtypeForInterface(c, errorInterface, specType, exprType, callExpr)
 		}
 	}
 }
 
-func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr) {
+func findConversionsInCallExpr(c *context, callExpr *ast.CallExpr) {
 	if len(callExpr.Args) == 0 {
 		return
 	}
 
+	pass := c.pass
 	functionType := pass.TypesInfo.TypeOf(callExpr.Fun)
 	signature, ok := functionType.(*types.Signature)
 	if !ok {
 		// The given call expression is a type conversion.
-		findConversionsExplicit(pass, lookup, callExpr, functionType)
+		findConversionsExplicit(c, callExpr, functionType)
 	} else {
 		// The given call expression is a regular call to a function.
 		for i := 0; i < signature.Params().Len(); i++ {
@@ -290,11 +296,11 @@ func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr
 				continue
 			}
 
-			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, paramType, callExpr.Args[i])
+			checkIfExprHasValidSubtypeForInterface(c, errorInterface, paramType, callExpr.Args[i])
 
 			if signature.Variadic() && i == signature.Params().Len()-1 {
 				for j := signature.Params().Len(); j < len(callExpr.Args); j++ {
-					checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, paramType, callExpr.Args[j])
+					checkIfExprHasValidSubtypeForInterface(c, errorInterface, paramType, callExpr.Args[j])
 				}
 			}
 		}
@@ -314,14 +320,14 @@ func findConversionsInCallExpr(pass *analysis.Pass, lookup *funcLookup, callExpr
 			}
 
 			for i := signature.Params().Len() - 1; i < len(callExpr.Args); i++ {
-				checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, sliceType.Elem(), callExpr.Args[i])
+				checkIfExprHasValidSubtypeForInterface(c, errorInterface, sliceType.Elem(), callExpr.Args[i])
 			}
 		}
 	}
 }
 
-func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *ast.CallExpr, targetType types.Type) {
-	errorInterface := importErrorInterfaceFact(pass, targetType)
+func findConversionsExplicit(c *context, callExpr *ast.CallExpr, targetType types.Type) {
+	errorInterface := importErrorInterfaceFact(c.pass, targetType)
 	if errorInterface == nil {
 		return
 	}
@@ -330,24 +336,26 @@ func findConversionsExplicit(pass *analysis.Pass, lookup *funcLookup, callExpr *
 		panic("should be unreachable: type conversion may only have one parameter")
 	}
 
-	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, callExpr.Args[0])
+	checkIfExprHasValidSubtypeForInterface(c, errorInterface, targetType, callExpr.Args[0])
 }
 
-func findConversionsInTypeAssertExpr(pass *analysis.Pass, lookup *funcLookup, typeAssertExpr *ast.TypeAssertExpr) {
+func findConversionsInTypeAssertExpr(c *context, typeAssertExpr *ast.TypeAssertExpr) {
 	if typeAssertExpr.Type == nil {
 		return // Ignore all "switch X.(type) { ... }" kind of type assertions.
 	}
 
+	pass := c.pass
 	targetType := pass.TypesInfo.TypeOf(typeAssertExpr.Type)
 	errorInterface := importErrorInterfaceFact(pass, targetType)
 	if errorInterface == nil {
 		return
 	}
 
-	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, targetType, typeAssertExpr.X)
+	checkIfExprHasValidSubtypeForInterface(c, errorInterface, targetType, typeAssertExpr.X)
 }
 
-func findConversionsInIndexExpr(pass *analysis.Pass, lookup *funcLookup, indexExpr *ast.IndexExpr) {
+func findConversionsInIndexExpr(c *context, indexExpr *ast.IndexExpr) {
+	pass := c.pass
 	mapType, ok := pass.TypesInfo.TypeOf(indexExpr.X).(*types.Map)
 	if !ok {
 		// indexExpr.X can be a map or any of slice, array, pointer to array, or string.
@@ -360,15 +368,15 @@ func findConversionsInIndexExpr(pass *analysis.Pass, lookup *funcLookup, indexEx
 		return
 	}
 
-	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, mapType.Key(), indexExpr.Index)
+	checkIfExprHasValidSubtypeForInterface(c, errorInterface, mapType.Key(), indexExpr.Index)
 }
 
-func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit) {
+func findConversionsInCompositeLit(c *context, composite *ast.CompositeLit) {
 	if len(composite.Elts) == 0 {
 		return
 	}
 
-	exprType := pass.TypesInfo.TypeOf(composite)
+	exprType := c.pass.TypesInfo.TypeOf(composite)
 
 	// Unpack named type to find actual type.
 	if namedType, ok := exprType.(*types.Named); ok {
@@ -377,20 +385,20 @@ func findConversionsInCompositeLit(pass *analysis.Pass, lookup *funcLookup, comp
 
 	switch exprType := exprType.(type) {
 	case *types.Struct:
-		findConversionsInStructLit(pass, lookup, composite, exprType)
+		findConversionsInStructLit(c, composite, exprType)
 	case *types.Slice:
-		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
+		findConversionsInCompositeValues(c, composite, exprType.Elem())
 	case *types.Array:
-		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
+		findConversionsInCompositeValues(c, composite, exprType.Elem())
 	case *types.Map:
-		findConversionsInCompositeValues(pass, lookup, composite, exprType.Elem())
-		findConversionsInMapLitKeys(pass, lookup, composite, exprType.Key())
+		findConversionsInCompositeValues(c, composite, exprType.Elem())
+		findConversionsInMapLitKeys(c, composite, exprType.Key())
 	default:
 		logf("composite lit type not handled in findConversionsInCompositeLit: %#v\n", exprType)
 	}
 }
 
-func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, structType *types.Struct) {
+func findConversionsInStructLit(c *context, composite *ast.CompositeLit, structType *types.Struct) {
 	if len(composite.Elts) == 0 {
 		return
 	}
@@ -398,19 +406,19 @@ func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composi
 	for i := 0; i < structType.NumFields(); i++ {
 		field := structType.Field(i)
 		fieldType := field.Type()
-		errorInterface := importErrorInterfaceFact(pass, fieldType)
+		errorInterface := importErrorInterfaceFact(c.pass, fieldType)
 		if errorInterface == nil {
 			continue
 		}
 
 		if _, ok := composite.Elts[0].(*ast.KeyValueExpr); !ok { // struct creation has positional arguments
-			checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, fieldType, composite.Elts[i])
+			checkIfExprHasValidSubtypeForInterface(c, errorInterface, fieldType, composite.Elts[i])
 		} else { // struct creation has keyed arguments
 			for _, expr := range composite.Elts {
 				exprKeyed := expr.(*ast.KeyValueExpr) // if one element is key-value, all have to be
 				key := exprKeyed.Key.(*ast.Ident)
 				if key.Name == field.Name() {
-					checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, fieldType, exprKeyed.Value)
+					checkIfExprHasValidSubtypeForInterface(c, errorInterface, fieldType, exprKeyed.Value)
 					break
 				}
 			}
@@ -418,8 +426,8 @@ func findConversionsInStructLit(pass *analysis.Pass, lookup *funcLookup, composi
 	}
 }
 
-func findConversionsInCompositeValues(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, elemType types.Type) {
-	errorInterface := importErrorInterfaceFact(pass, elemType)
+func findConversionsInCompositeValues(c *context, composite *ast.CompositeLit, elemType types.Type) {
+	errorInterface := importErrorInterfaceFact(c.pass, elemType)
 	if errorInterface == nil {
 		return
 	}
@@ -428,27 +436,28 @@ func findConversionsInCompositeValues(pass *analysis.Pass, lookup *funcLookup, c
 		if keyedElement, ok := element.(*ast.KeyValueExpr); ok {
 			element = keyedElement.Value // key is not relevant for the following check
 		}
-		checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, elemType, element)
+		checkIfExprHasValidSubtypeForInterface(c, errorInterface, elemType, element)
 	}
 }
 
-func findConversionsInMapLitKeys(pass *analysis.Pass, lookup *funcLookup, composite *ast.CompositeLit, keyType types.Type) {
-	errorInterface := importErrorInterfaceFact(pass, keyType)
+func findConversionsInMapLitKeys(c *context, composite *ast.CompositeLit, keyType types.Type) {
+	errorInterface := importErrorInterfaceFact(c.pass, keyType)
 	if errorInterface == nil {
 		return
 	}
 
 	for _, element := range composite.Elts {
 		keyedElement := element.(*ast.KeyValueExpr) // all elements have to be key-value, because it's a map
-		checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, keyType, keyedElement.Key)
+		checkIfExprHasValidSubtypeForInterface(c, errorInterface, keyType, keyedElement.Key)
 	}
 }
 
-func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.ReturnStmt, within *ast.FuncType) {
+func findConversionsInReturnStmt(c *context, statement *ast.ReturnStmt, within *ast.FuncType) {
 	if len(statement.Results) == 0 {
 		return
 	}
 
+	pass := c.pass
 	position := 0
 	for _, resultField := range within.Results.List {
 		nextPosition := position
@@ -463,7 +472,7 @@ func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statem
 		if errorInterface != nil {
 			for i := position; i < nextPosition; i++ {
 				expression := statement.Results[i]
-				checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, resultType, expression)
+				checkIfExprHasValidSubtypeForInterface(c, errorInterface, resultType, expression)
 			}
 		}
 
@@ -471,11 +480,12 @@ func findConversionsInReturnStmt(pass *analysis.Pass, lookup *funcLookup, statem
 	}
 }
 
-func findConversionsInRangeStmtKey(pass *analysis.Pass, lookup *funcLookup, statement *ast.RangeStmt) {
+func findConversionsInRangeStmtKey(c *context, statement *ast.RangeStmt) {
 	if statement.Key == nil {
 		return
 	}
 
+	pass := c.pass
 	keyType := pass.TypesInfo.TypeOf(statement.Key)
 	errorInterface := importErrorInterfaceFact(pass, keyType)
 	if errorInterface == nil {
@@ -493,14 +503,15 @@ func findConversionsInRangeStmtKey(pass *analysis.Pass, lookup *funcLookup, stat
 		panic("unexpected type in for-range statement")
 	}
 
-	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, keyType, exprType, statement.X)
+	checkIfTypeIsValidSubtypeForInterface(c, errorInterface, keyType, exprType, statement.X)
 }
 
-func findConversionsInRangeStmtValue(pass *analysis.Pass, lookup *funcLookup, statement *ast.RangeStmt) {
+func findConversionsInRangeStmtValue(c *context, statement *ast.RangeStmt) {
 	if statement.Key == nil {
 		return
 	}
 
+	pass := c.pass
 	valueType := pass.TypesInfo.TypeOf(statement.Value)
 	errorInterface := importErrorInterfaceFact(pass, valueType)
 	if errorInterface == nil {
@@ -516,17 +527,18 @@ func findConversionsInRangeStmtValue(pass *analysis.Pass, lookup *funcLookup, st
 		exprType = rhsType.(interface{ Elem() types.Type }).Elem()
 	}
 
-	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, valueType, exprType, statement.X)
+	checkIfTypeIsValidSubtypeForInterface(c, errorInterface, valueType, exprType, statement.X)
 }
 
-func findConversionsInSendStmt(pass *analysis.Pass, lookup *funcLookup, statement *ast.SendStmt) {
+func findConversionsInSendStmt(c *context, statement *ast.SendStmt) {
+	pass := c.pass
 	chanType := pass.TypesInfo.TypeOf(statement.Chan).(*types.Chan)
 	errorInterface := importErrorInterfaceFact(pass, chanType.Elem())
 	if errorInterface == nil {
 		return
 	}
 
-	checkIfExprHasValidSubtypeForInterface(pass, lookup, errorInterface, chanType.Elem(), statement.Value)
+	checkIfExprHasValidSubtypeForInterface(c, errorInterface, chanType.Elem(), statement.Value)
 }
 
 // importErrorInterfaceFact imports and returns the ErrorInterface fact for the given type,
@@ -540,16 +552,18 @@ func importErrorInterfaceFact(pass *analysis.Pass, interfaceType types.Type) *Er
 	return nil
 }
 
-func checkIfExprHasValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, errorInterface *ErrorInterface, interfaceType types.Type, expression ast.Expr) {
-	exprType := pass.TypesInfo.TypeOf(expression)
-	checkIfTypeIsValidSubtypeForInterface(pass, lookup, errorInterface, interfaceType, exprType, expression)
+func checkIfExprHasValidSubtypeForInterface(c *context, errorInterface *ErrorInterface, interfaceType types.Type, expression ast.Expr) {
+	exprType := c.pass.TypesInfo.TypeOf(expression)
+	checkIfTypeIsValidSubtypeForInterface(c, errorInterface, interfaceType, exprType, expression)
 }
 
-func checkIfTypeIsValidSubtypeForInterface(pass *analysis.Pass, lookup *funcLookup, errorInterface *ErrorInterface, interfaceType types.Type, exprType types.Type, exprPos analysis.Range) {
+func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInterface, interfaceType types.Type, exprType types.Type, exprPos analysis.Range) {
 	// If the types are identical, then declared error codes are also identical.
 	if types.Identical(exprType, interfaceType) {
 		return
 	}
+
+	pass, lookup := c.pass, c.lookup
 
 	// Nil values are always ok.
 	basicType, ok := exprType.(*types.Basic)

@@ -43,6 +43,12 @@ func (e *ErrorCodes) String() string {
 	return fmt.Sprintf("ErrorCodes: %v", strings.Join(e.Codes, " "))
 }
 
+type context struct {
+	pass   *analysis.Pass
+	lookup *funcLookup
+	scc    scc.State
+}
+
 type funcCodes map[*ast.FuncDecl]codeSet
 
 // isErrorCodeValid checks if the given error code is valid.
@@ -96,10 +102,11 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
 	scc := scc.StartSCC() // SCC for handling of recursive functions
+	c := &context{pass, lookup, scc}
 	for funcDecl, claimedCodes := range funcClaims {
 		foundCodes, ok := lookup.foundCodes[funcDecl]
 		if !ok {
-			foundCodes = findErrorCodesInFunc(pass, lookup, scc, funcDecl)
+			foundCodes = findErrorCodesInFunc(c, funcDecl)
 		}
 
 		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claimedCodes)
@@ -110,7 +117,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// but on caller site only the documented behaviour matters.
 	exportFunctionFacts(pass, funcClaims)
 
-	findConversionsToErrorReturningInterfaces(pass, lookup)
+	findConversionsToErrorReturningInterfaces(c)
 
 	return nil, nil
 }
@@ -300,7 +307,9 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 
 // findErrorCodesInFunc finds error codes that are returned by the given function.
 // The result is also stored in the foundCodes cache of the given funcLookup.
-func findErrorCodesInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State, funcDecl *ast.FuncDecl) codeSet {
+func findErrorCodesInFunc(c *context, funcDecl *ast.FuncDecl) codeSet {
+	scc, lookup := c.scc, c.lookup
+
 	scc.Visit(funcDecl)
 	result := set()
 	visitedIdents := map[*ast.Ident]struct{}{}
@@ -335,7 +344,7 @@ func findErrorCodesInFunc(pass *analysis.Pass, lookup *funcLookup, scc scc.State
 			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
-				newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, resultExpression, funcDecl)
+				newCodes := findErrorCodesInExpression(c, visitedIdents, resultExpression, funcDecl)
 				result = union(result, newCodes)
 			}
 
@@ -378,17 +387,19 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 }
 
 // findErrorCodesInExpression finds all error codes that originate from the given expression.
-func findErrorCodesInExpression(pass *analysis.Pass, lookup *funcLookup, scc scc.State, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *ast.FuncDecl) codeSet {
+func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *ast.FuncDecl) codeSet {
+	pass, lookup := c.pass, c.lookup
+
 	switch expr := expr.(type) {
 	case *ast.CallExpr:
-		return findErrorCodesInCallExpression(pass, lookup, scc, expr, startingFunc)
+		return findErrorCodesInCallExpression(c, expr, startingFunc)
 	case *ast.Ident:
-		return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, expr, startingFunc)
+		return findErrorCodesFromIdentTaint(c, visitedIdents, expr, startingFunc)
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
 		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) {
 			if ident, ok := expr.X.(*ast.Ident); ok {
-				return findErrorCodesFromIdentTaint(pass, lookup, scc, visitedIdents, ident, startingFunc)
+				return findErrorCodesFromIdentTaint(c, visitedIdents, ident, startingFunc)
 			} else {
 				return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 			}
@@ -413,7 +424,9 @@ func findErrorCodesInExpression(pass *analysis.Pass, lookup *funcLookup, scc scc
 //   - a CallExpr that's an interface (we can't really look deeper than that)
 //   - a CallExpr that targets another function in this package (recurse or load from cache)
 //   - a CallExpr that targets a function literal (not handled)
-func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc scc.State, callExpr *ast.CallExpr, startingFunc *ast.FuncDecl) codeSet {
+func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, startingFunc *ast.FuncDecl) codeSet {
+	pass, lookup, scc := c.pass, c.lookup, c.scc
+
 	// For a CallExpr we first look if the error codes are already computed and stored as a fact.
 	// If so we use those, otherwise we try to recurse and compute error codes for that function.
 	callee := typeutil.Callee(pass.TypesInfo, callExpr)
@@ -465,7 +478,7 @@ func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc
 	if calledFunc != nil {
 		shouldRecurse := scc.HandleEdge(startingFunc, calledFunc)
 		if shouldRecurse {
-			result = findErrorCodesInFunc(pass, lookup, scc, calledFunc)
+			result = findErrorCodesInFunc(c, calledFunc)
 			scc.AfterRecurse(startingFunc, calledFunc)
 		} else if cachedResult, ok := lookup.foundCodes[calledFunc]; ok {
 			result = cachedResult
@@ -479,7 +492,9 @@ func findErrorCodesInCallExpression(pass *analysis.Pass, lookup *funcLookup, scc
 }
 
 // findErrorCodesFromIdentTaint finds error codes in the given function, by tracking all assignments to the given ident within the function.
-func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc scc.State, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *ast.FuncDecl) codeSet {
+func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *ast.FuncDecl) codeSet {
+	pass, lookup := c.pass, c.lookup
+
 	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
 	if _, ok := visitedIdents[ident]; ok {
 		return nil
@@ -523,7 +538,7 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 			}
 
 			if len(assignment.Lhs) == len(assignment.Rhs) {
-				newCodes := findErrorCodesInExpression(pass, lookup, scc, visitedIdents, assignment.Rhs[i], within)
+				newCodes := findErrorCodesInExpression(c, visitedIdents, assignment.Rhs[i], within)
 				result = union(result, newCodes)
 			} else {
 				// Destructuring mode.
@@ -534,7 +549,7 @@ func findErrorCodesFromIdentTaint(pass *analysis.Pass, lookup *funcLookup, scc s
 				}
 				// Because it's a CallExpr, we're done here: this is part of the result.
 				if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
-					newCodes := findErrorCodesInCallExpression(pass, lookup, scc, callExpr, within)
+					newCodes := findErrorCodesInCallExpression(c, callExpr, within)
 					result = union(result, newCodes)
 				} else {
 					panic("what?")
