@@ -5,30 +5,30 @@ import (
 	"strings"
 )
 
-type codeSet map[string]struct{}
+type CodeSet map[string]struct{}
 
-func (set codeSet) String() string {
-	return fmt.Sprintf("set[%s]", strings.Join(set.slice(), " "))
+func (set CodeSet) String() string {
+	return fmt.Sprintf("set[%s]", strings.Join(set.Slice(), " "))
 }
 
-// set creates a set using the provided values.
-func set(values ...string) codeSet {
-	return sliceToSet(values)
+// Set creates a Set using the provided values.
+func Set(values ...string) CodeSet {
+	return SliceToSet(values)
 }
 
-// sliceToSet creates a set containing all values of the given slice, removing duplicates.
+// SliceToSet creates a set containing all values of the given slice, removing duplicates.
 // The slice is not modified.
-func sliceToSet(slice []string) codeSet {
-	set := make(codeSet, len(slice))
+func SliceToSet(slice []string) CodeSet {
+	set := make(CodeSet, len(slice))
 	for _, value := range slice {
 		set[value] = struct{}{}
 	}
 	return set
 }
 
-// slice creates a slice containing all values of the given set.
+// Slice creates a Slice containing all values of the given set.
 // The set is not modified.
-func (set codeSet) slice() []string {
+func (set CodeSet) Slice() []string {
 	slice := make([]string, 0, len(set))
 	for value := range set {
 		slice = append(slice, value)
@@ -36,16 +36,16 @@ func (set codeSet) slice() []string {
 	return slice
 }
 
-// add adds a value to the set.
-func (set codeSet) add(value string) {
+// Add adds a value to the set.
+func (set CodeSet) Add(value string) {
 	set[value] = struct{}{}
 }
 
-// union returns a set containing all values that appear in either input set.
+// Union returns a set containing all values that appear in either input set.
 // The input sets are not modified.
-func union(set, other codeSet) codeSet {
+func Union(set, other CodeSet) CodeSet {
 	// Assuming no collisons, so we always either allocate the correct amount or overestimate the needs.
-	result := make(codeSet, len(set)+len(other))
+	result := make(CodeSet, len(set)+len(other))
 
 	for value := range set {
 		result[value] = struct{}{}
@@ -58,11 +58,11 @@ func union(set, other codeSet) codeSet {
 	return result
 }
 
-// difference creates a new set containing the elements of the given set (lhs),
+// Difference creates a new set containing the elements of the given set (lhs),
 // minus the elements in the given subtrahend (rhs).
 // The input sets are not modified.
-func difference(set, subtrahend codeSet) codeSet {
-	diff := make(codeSet)
+func Difference(set, subtrahend CodeSet) CodeSet {
+	diff := make(CodeSet)
 	for value := range set {
 		if _, ok := subtrahend[value]; !ok {
 			diff[value] = struct{}{}

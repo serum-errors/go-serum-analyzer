@@ -190,7 +190,7 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 //         Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
 func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
-	constants := set()
+	constants := Set()
 	var fieldName *ast.Ident
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
@@ -207,7 +207,7 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 			if returnType.Value != nil {
 				value, err := getErrorCodeFromConstant(returnType.Value)
 				if err == nil {
-					constants.add(value)
+					constants.Add(value)
 				} else {
 					pass.ReportRangef(node, "%v", err)
 				}
@@ -251,7 +251,7 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 		return nil
 	}
 
-	return &ErrorType{Codes: constants.slice(), Field: field}
+	return &ErrorType{Codes: constants.Slice(), Field: field}
 }
 
 // getFieldPosition gets the position of the given field in the error struct.
@@ -287,7 +287,7 @@ func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorTyp
 		return
 	}
 
-	assignedCodes := set()
+	assignedCodes := Set()
 
 	errorMethods := collectMethodsForErrorType(pass, lookup, err)
 	for _, method := range errorMethods {
@@ -306,7 +306,7 @@ func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorTyp
 			}
 
 			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, errorType, receiver, assignment)
-			assignedCodes = union(assignedCodes, newCodes)
+			assignedCodes = Union(assignedCodes, newCodes)
 
 			return false
 		})
@@ -314,8 +314,8 @@ func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorTyp
 
 	// If more error codes are found, add them to the given error type.
 	if len(assignedCodes) > 0 {
-		codes := union(sliceToSet(errorType.Codes), assignedCodes)
-		errorType.Codes = codes.slice()
+		codes := Union(SliceToSet(errorType.Codes), assignedCodes)
+		errorType.Codes = codes.Slice()
 	}
 }
 

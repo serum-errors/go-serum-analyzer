@@ -34,12 +34,12 @@ type state interface {
 // If there are no error declarations, (nil, nil) is returned.
 // If there's what looks like an error declaration, but funny looking, an error is returned.
 type findErrorDocsSM struct {
-	seen  codeSet
+	seen  CodeSet
 	state state
 }
 
-func (sm findErrorDocsSM) run(doc string) (codeSet, error) {
-	sm.seen = codeSet{}
+func (sm findErrorDocsSM) run(doc string) (CodeSet, error) {
+	sm.seen = CodeSet{}
 	sm.state = stateInit{}
 
 	for _, line := range strings.Split(doc, "\n") {

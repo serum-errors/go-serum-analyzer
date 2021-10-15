@@ -20,7 +20,7 @@ type ErrorInterface struct {
 	//
 	// For all types implementing this interface, these methods must be checked to
 	// make sure they only contain a subset of the error codes declared in the interface.
-	ErrorMethods map[string]codeSet
+	ErrorMethods map[string]CodeSet
 }
 
 func (*ErrorInterface) AFact() {}
@@ -38,7 +38,7 @@ func (e *ErrorInterface) String() string {
 // methods that declare error codes.
 type errorInterfaceWithCodes struct {
 	InterfaceIdent *ast.Ident
-	ErrorMethods   map[*ast.Ident]codeSet
+	ErrorMethods   map[*ast.Ident]CodeSet
 }
 
 func findErrorReturningInterfaces(pass *analysis.Pass) []*errorInterfaceWithCodes {
@@ -79,7 +79,7 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		return nil
 	}
 
-	result := errorInterfaceWithCodes{typeSpec.Name, map[*ast.Ident]codeSet{}}
+	result := errorInterfaceWithCodes{typeSpec.Name, map[*ast.Ident]CodeSet{}}
 
 	for _, method := range interfaceType.Methods.List {
 		funcType, ok := method.Type.(*ast.FuncType)
@@ -129,7 +129,7 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 		return
 	}
 
-	methods := make(map[string]codeSet, len(errorInterface.ErrorMethods))
+	methods := make(map[string]CodeSet, len(errorInterface.ErrorMethods))
 	for methodIdent, codes := range errorInterface.ErrorMethods {
 		methods[methodIdent.Name] = codes
 	}
@@ -603,6 +603,11 @@ func checkIfExprHasValidSubtypeForInterface(c *context, errorInterface *ErrorInt
 	checkIfTypeIsValidSubtypeForInterface(c, errorInterface, interfaceType, exprType, expression)
 }
 
+// checkIfTypeIsValidSubtypeForInterface checks if the type (exprType) is a valid subtype of the interface type (interfaceType)
+// by looking at the error codes returned by the methods of both types.
+//
+// To be a valid subtype, the error codes of all methods in the implementation must be
+// a subset of the error codes of the respective method in the interface.
 func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInterface, interfaceType types.Type, exprType types.Type, exprPos analysis.Range) {
 	// If the types are identical, then declared error codes are also identical.
 	if types.Identical(exprType, interfaceType) {
@@ -623,11 +628,11 @@ func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInte
 			panic("should be unreachable: the given expression was confirmed to implement the interface by the type checker.")
 		}
 
-		var foundCodes codeSet
+		var foundCodes CodeSet
 		var implementedCodes ErrorCodes
 		// Try to get error codes from fact.
 		if pass.ImportObjectFact(methodType.Obj(), &implementedCodes) {
-			foundCodes = sliceToSet(implementedCodes.Codes)
+			foundCodes = implementedCodes.Codes
 		} else {
 			// Failed: Could be a non-exported function.
 			var ok bool
@@ -638,10 +643,10 @@ func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInte
 			}
 		}
 
-		unexpectedCodes := difference(foundCodes, interfaceCodes)
+		unexpectedCodes := Difference(foundCodes, interfaceCodes)
 		if len(unexpectedCodes) > 0 {
 			namedType := getNamedType(interfaceType)
-			unexpectedCodes := unexpectedCodes.slice()
+			unexpectedCodes := unexpectedCodes.Slice()
 			sort.Strings(unexpectedCodes)
 			pass.ReportRangef(exprPos, "cannot use expression as %q value: method %q declares the following error codes which were not part of the interface: %v", namedType.Obj().Name(), methodName, unexpectedCodes)
 		}

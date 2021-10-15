@@ -10,16 +10,16 @@ import (
 func TestSliceToSet(t *testing.T) {
 	tests := []struct {
 		slice []string
-		set   codeSet
+		set   CodeSet
 	}{
-		{[]string{"one"}, set("one")},
-		{[]string{"one", "two"}, set("one", "two")},
-		{[]string{"one", "one"}, set("one")},
-		{[]string{"three", "one", "two", "one"}, set("one", "two", "three")},
+		{[]string{"one"}, Set("one")},
+		{[]string{"one", "two"}, Set("one", "two")},
+		{[]string{"one", "one"}, Set("one")},
+		{[]string{"three", "one", "two", "one"}, Set("one", "two", "three")},
 	}
 
 	for _, test := range tests {
-		result := sliceToSet(test.slice)
+		result := SliceToSet(test.slice)
 		if !reflect.DeepEqual(test.set, result) {
 			t.Errorf("sliceToSet(%v) should be %v but was %v", test.slice, test.set, result)
 		}
@@ -29,15 +29,15 @@ func TestSliceToSet(t *testing.T) {
 func TestSetToSlice(t *testing.T) {
 	tests := []struct {
 		slice []string
-		set   codeSet
+		set   CodeSet
 	}{
-		{[]string{"one"}, set("one")},
-		{[]string{"one", "two"}, set("one", "two")},
-		{[]string{"one", "three", "two"}, set("one", "two", "three")},
+		{[]string{"one"}, Set("one")},
+		{[]string{"one", "two"}, Set("one", "two")},
+		{[]string{"one", "three", "two"}, Set("one", "two", "three")},
 	}
 
 	for _, test := range tests {
-		result := test.set.slice()
+		result := test.set.Slice()
 		sort.Strings(result)
 		if !reflect.DeepEqual(test.slice, result) {
 			t.Errorf("%v.slice() should be %v but was %v", test.set, test.slice, result)
@@ -46,18 +46,18 @@ func TestSetToSlice(t *testing.T) {
 }
 
 func TestSetAdd(t *testing.T) {
-	s := set("one")
-	s.add("two")
+	s := Set("one")
+	s.Add("two")
 
-	expected := set("one", "two")
+	expected := Set("one", "two")
 	if !reflect.DeepEqual(expected, s) {
 		t.Errorf("expected %v got %v", expected, s)
 	}
 
-	s.add("one")
-	s.add("one")
-	s.add("two")
-	s.add("two")
+	s.Add("one")
+	s.Add("one")
+	s.Add("two")
+	s.Add("two")
 
 	if !reflect.DeepEqual(expected, s) {
 		t.Errorf("expected %v got %v", expected, s)
@@ -65,25 +65,25 @@ func TestSetAdd(t *testing.T) {
 }
 func TestUnionAndDifference(t *testing.T) {
 	tests := []struct {
-		a, b, union, difference codeSet
+		a, b, union, difference CodeSet
 	}{
-		{set("one"), set("two"), set("one", "two"), set("one")},
-		{set(), set("one"), set("one"), set()},
-		{set("one"), set("one"), set("one"), set()},
-		{set("one", "two"), set("one", "two"), set("one", "two"), set()},
-		{set("three", "one", "two"), set("two", "one"), set("one", "two", "three"), set("three")},
-		{set(), set(), set(), set()},
-		{set(), set("one"), set("one"), set()},
+		{Set("one"), Set("two"), Set("one", "two"), Set("one")},
+		{Set(), Set("one"), Set("one"), Set()},
+		{Set("one"), Set("one"), Set("one"), Set()},
+		{Set("one", "two"), Set("one", "two"), Set("one", "two"), Set()},
+		{Set("three", "one", "two"), Set("two", "one"), Set("one", "two", "three"), Set("three")},
+		{Set(), Set(), Set(), Set()},
+		{Set(), Set("one"), Set("one"), Set()},
 	}
 
 	for _, test := range tests {
 		params := fmt.Sprintf("%v, %v", test.a, test.b)
 
-		if diff := difference(test.a, test.b); !reflect.DeepEqual(test.difference, diff) {
+		if diff := Difference(test.a, test.b); !reflect.DeepEqual(test.difference, diff) {
 			t.Errorf("difference(%s) should be %v but was %v", params, test.difference, diff)
 		}
 
-		if result := union(test.a, test.b); !reflect.DeepEqual(test.union, result) {
+		if result := Union(test.a, test.b); !reflect.DeepEqual(test.union, result) {
 			t.Errorf("union(%s) should be %v but was %v", params, test.union, result)
 		}
 	}

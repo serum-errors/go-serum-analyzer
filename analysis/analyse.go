@@ -33,14 +33,15 @@ var VerifyAnalyzer = &analysis.Analyzer{
 }
 
 type ErrorCodes struct {
-	Codes []string
+	Codes CodeSet
 }
 
 func (*ErrorCodes) AFact() {}
 
 func (e *ErrorCodes) String() string {
-	sort.Strings(e.Codes)
-	return fmt.Sprintf("ErrorCodes: %v", strings.Join(e.Codes, " "))
+	codes := e.Codes.Slice()
+	sort.Strings(codes)
+	return fmt.Sprintf("ErrorCodes: %v", strings.Join(codes, " "))
 }
 
 type context struct {
@@ -49,7 +50,7 @@ type context struct {
 	scc    scc.State
 }
 
-type funcCodes map[*ast.FuncDecl]codeSet
+type funcCodes map[*ast.FuncDecl]CodeSet
 
 // isErrorCodeValid checks if the given error code is valid.
 //
@@ -138,7 +139,7 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 }, nil).Complete()
 
 // findErrorDocs looks at the given comments and tries to find error code declarations.
-func findErrorDocs(comments *ast.CommentGroup) (codeSet, error) {
+func findErrorDocs(comments *ast.CommentGroup) (CodeSet, error) {
 	if comments == nil {
 		return nil, nil
 	}
@@ -234,7 +235,7 @@ func exportFunctionFacts(pass *analysis.Pass, codes funcCodes) {
 }
 
 // exportErrorCodesFact exports all given codes for the given function as an ErrorCodes fact.
-func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes codeSet) {
+func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes CodeSet) {
 	definition, ok := pass.TypesInfo.Defs[funcIdent]
 	if !ok {
 		logf("Could not find definition for function %q!", funcIdent.Name)
@@ -247,13 +248,13 @@ func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes codeS
 		return
 	}
 
-	fact := ErrorCodes{codes.slice()}
+	fact := ErrorCodes{codes}
 	pass.ExportObjectFact(fn, &fact)
 }
 
 // extractErrorCodesFromAffector extracts all error codes from the given affectors and returns them.
-func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affector ast.Expr) codeSet {
-	result := set()
+func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, funcDecl *ast.FuncDecl, affector ast.Expr) CodeSet {
+	result := Set()
 
 	// Make sure method "Code() string" is present
 	if !checkErrorTypeHasLegibleCode(pass, affector) {
@@ -269,13 +270,13 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 		logf("Error while looking at affector: %v (Affector: %#v)\n", err, affector)
 	} else if errorType != nil {
 		if len(errorType.Codes) > 0 {
-			result = union(result, sliceToSet(errorType.Codes))
+			result = Union(result, SliceToSet(errorType.Codes))
 		}
 
 		if errorType.Field != nil {
 			code, err := extractFieldErrorCodes(pass, affector, funcDecl, errorType)
 			if err == nil {
-				result.add(code)
+				result.Add(code)
 			} else {
 				pass.ReportRangef(affector, "%v", err)
 			}
@@ -286,9 +287,9 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 }
 
 // reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
-func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes codeSet, claimedCodes codeSet) {
-	missingCodes := difference(foundCodes, claimedCodes).slice()
-	unusedCodes := difference(claimedCodes, foundCodes).slice()
+func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes CodeSet, claimedCodes CodeSet) {
+	missingCodes := Difference(foundCodes, claimedCodes).Slice()
+	unusedCodes := Difference(claimedCodes, foundCodes).Slice()
 	var errorMessages []string
 	if len(missingCodes) != 0 {
 		sort.Strings(missingCodes)
@@ -307,11 +308,11 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 
 // findErrorCodesInFunc finds error codes that are returned by the given function.
 // The result is also stored in the foundCodes cache of the given funcLookup.
-func findErrorCodesInFunc(c *context, funcDecl *ast.FuncDecl) codeSet {
+func findErrorCodesInFunc(c *context, funcDecl *ast.FuncDecl) CodeSet {
 	scc, lookup := c.scc, c.lookup
 
 	scc.Visit(funcDecl)
-	result := set()
+	result := Set()
 	visitedIdents := map[*ast.Ident]struct{}{}
 
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
@@ -345,7 +346,7 @@ func findErrorCodesInFunc(c *context, funcDecl *ast.FuncDecl) codeSet {
 			// - This is probably not an exhaustive list...
 			if resultExpression != nil {
 				newCodes := findErrorCodesInExpression(c, visitedIdents, resultExpression, funcDecl)
-				result = union(result, newCodes)
+				result = Union(result, newCodes)
 			}
 
 			return false
@@ -365,8 +366,8 @@ func findErrorCodesInFunc(c *context, funcDecl *ast.FuncDecl) codeSet {
 
 // unifyAnalysisResultForComponent sets the analysis result of each function in the given component to a combined result,
 // containing all the error codes and affectors that result from the analysis of the individual functions.
-func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) codeSet {
-	result := set()
+func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component) CodeSet {
+	result := Set()
 
 	// Create unified result using all individual results of the functions in the component.
 	for _, element := range component {
@@ -374,7 +375,7 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 		codes := lookup.foundCodes[funcDecl]
 
 		// lookup.analysisResults[funcDecl] will be overwritten in the next step, so using combineInplace is fine.
-		result = union(result, codes)
+		result = Union(result, codes)
 	}
 
 	// Set the unified result to all functions in the component.
@@ -387,7 +388,7 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 }
 
 // findErrorCodesInExpression finds all error codes that originate from the given expression.
-func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *ast.FuncDecl) codeSet {
+func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *ast.FuncDecl) CodeSet {
 	pass, lookup := c.pass, c.lookup
 
 	switch expr := expr.(type) {
@@ -424,7 +425,7 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{
 //   - a CallExpr that's an interface (we can't really look deeper than that)
 //   - a CallExpr that targets another function in this package (recurse or load from cache)
 //   - a CallExpr that targets a function literal (not handled)
-func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, startingFunc *ast.FuncDecl) codeSet {
+func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, startingFunc *ast.FuncDecl) CodeSet {
 	pass, lookup, scc := c.pass, c.lookup, c.scc
 
 	// For a CallExpr we first look if the error codes are already computed and stored as a fact.
@@ -432,7 +433,7 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 	callee := typeutil.Callee(pass.TypesInfo, callExpr)
 	var fact ErrorCodes
 	if callee != nil && pass.ImportObjectFact(callee, &fact) {
-		return sliceToSet(fact.Codes)
+		return fact.Codes
 	}
 
 	var calledFunc *ast.FuncDecl
@@ -445,7 +446,7 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 
 			if !ok {
 				pass.ReportRangef(calledExpression, "function %q in dot-imported package does not declare error codes", calledExpression.Name)
-				return set()
+				return Set()
 			}
 		} else {
 			switch funcDecl := calledExpression.Obj.Decl.(type) {
@@ -460,7 +461,7 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 			if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
 				// We're calling a function in a package that does not have declared error codes
 				pass.ReportRangef(calledExpression, "function %q in package %q does not declare error codes", calledExpression.Sel.Name, obj.Imported().Name())
-				return set()
+				return Set()
 			}
 		}
 
@@ -470,10 +471,10 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 		calledFunc = lookup.searchMethod(pass, selection.Recv(), calledExpression.Sel.Name)
 	default:
 		pass.ReportRangef(calledExpression, "unnamed functions are not supported in error code analysis")
-		return set()
+		return Set()
 	}
 
-	result := set()
+	result := Set()
 
 	if calledFunc != nil {
 		shouldRecurse := scc.HandleEdge(startingFunc, calledFunc)
@@ -492,7 +493,7 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 }
 
 // findErrorCodesFromIdentTaint finds error codes in the given function, by tracking all assignments to the given ident within the function.
-func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *ast.FuncDecl) codeSet {
+func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *ast.FuncDecl) CodeSet {
 	pass, lookup := c.pass, c.lookup
 
 	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
@@ -514,7 +515,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 		}
 	}
 
-	result := set()
+	result := Set()
 
 	// Look for for `*ast.AssignStmt` in the function that could've affected this.
 	ast.Inspect(within, func(node ast.Node) bool {
@@ -539,7 +540,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 
 			if len(assignment.Lhs) == len(assignment.Rhs) {
 				newCodes := findErrorCodesInExpression(c, visitedIdents, assignment.Rhs[i], within)
-				result = union(result, newCodes)
+				result = Union(result, newCodes)
 			} else {
 				// Destructuring mode.
 				// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
@@ -550,7 +551,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 				// Because it's a CallExpr, we're done here: this is part of the result.
 				if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
 					newCodes := findErrorCodesInCallExpression(c, callExpr, within)
-					result = union(result, newCodes)
+					result = Union(result, newCodes)
 				} else {
 					panic("what?")
 				}
@@ -559,7 +560,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 
 		// Adding codes that originate from assignments to the error code field.
 		newCodes := findCodesAssignedToErrorCodeField(pass, lookup, nil, ident, assignment)
-		result = union(result, newCodes)
+		result = Union(result, newCodes)
 
 		return true
 	})
@@ -569,8 +570,8 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 
 // findCodesAssignedToErrorCodeField searches through the given assignment and returns every constant code assigned to the error code field.
 // For invalid assignments to the error code field, diagnostics are emitted.
-func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, errorType *ErrorType, errorIdent *ast.Ident, assignment *ast.AssignStmt) codeSet {
-	result := set()
+func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, errorType *ErrorType, errorIdent *ast.Ident, assignment *ast.AssignStmt) CodeSet {
+	result := Set()
 
 	for i, lhsEntry := range assignment.Lhs {
 		lhsEntry, ok := lhsEntry.(*ast.SelectorExpr)
@@ -620,7 +621,7 @@ func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, 
 			continue
 		}
 
-		result.add(code)
+		result.Add(code)
 	}
 
 	return result
