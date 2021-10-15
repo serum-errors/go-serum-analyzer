@@ -104,6 +104,11 @@ func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type, spec 
 		return fmt.Errorf("type is an invalid error type")
 	}
 
+	// Ignore interface types: we don't need to tag them, only concrete implementations.
+	if _, ok := namedErr.Underlying().(*types.Interface); ok {
+		return nil
+	}
+
 	funcDecl, receiver := getCodeFuncFromError(pass, lookup, err)
 	if funcDecl == nil {
 		return fmt.Errorf(`found no method "Code() string"`)

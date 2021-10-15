@@ -111,6 +111,21 @@ func (ImplementInner1Interface3) Inner1YesCodes() error { // want Inner1YesCodes
 	return &Error{"interface-2-error"}
 }
 
+type ReeError interface {
+	Code() string
+	Message() string
+	Details() map[string]string
+	Cause() error
+	Error() string
+}
+
+// Errors:
+//
+//    - ree-error --
+func ReturnReeError() ReeError { // want ReturnReeError:"ErrorCodes: ree-error"
+	return &Error{"ree-error"}
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

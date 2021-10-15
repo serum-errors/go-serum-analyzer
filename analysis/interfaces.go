@@ -95,7 +95,11 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		}
 
 		if len(codes) == 0 {
-			// TODO: Exclude Cause() methods of error types from having to declare error codes.
+			// Exclude Cause() methods of error types from having to declare error codes.
+			interfaceType := pass.TypesInfo.TypeOf(typeSpec.Type)
+			if methodIdent.Name == "Cause" && types.Implements(interfaceType, tReeErrorWithCause) {
+				continue
+			}
 
 			// Warn directly about any methods if they return errors, but don't declare error codes in their docs.
 			pass.ReportRangef(method, "interface method %q does not declare any error codes", methodIdent.Name)
