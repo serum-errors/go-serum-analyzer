@@ -200,6 +200,8 @@ func findConversionsToErrorReturningInterfaces(c *context) {
 			findConversionsInCallExpr(c, node)
 		case *ast.TypeAssertExpr:
 			findConversionsInTypeAssertExpr(c, node)
+		case *ast.TypeSwitchStmt:
+			findConversionsInTypeSwitchStmt(c, node)
 		case *ast.IndexExpr:
 			findConversionsInIndexExpr(c, node)
 		case *ast.CompositeLit:
@@ -356,6 +358,46 @@ func findConversionsInTypeAssertExpr(c *context, typeAssertExpr *ast.TypeAssertE
 	}
 
 	checkIfExprHasValidSubtypeForInterface(c, errorInterface, targetType, typeAssertExpr.X)
+}
+
+func findConversionsInTypeSwitchStmt(c *context, typeSwitchStmt *ast.TypeSwitchStmt) {
+	if typeSwitchStmt.Body == nil {
+		return
+	}
+
+	// Only consider cases where an invalid type might be assigned to a variable.
+	assignment, ok := typeSwitchStmt.Assign.(*ast.AssignStmt)
+	if !ok || len(assignment.Rhs) != 1 {
+		return
+	}
+	expression := assignment.Rhs[0].(*ast.TypeAssertExpr)
+	exprType := c.pass.TypesInfo.TypeOf(expression.X)
+
+	pass := c.pass
+
+	for _, caseClause := range typeSwitchStmt.Body.List {
+		caseClause := caseClause.(*ast.CaseClause)
+		for _, caseElement := range caseClause.List {
+			caseType := pass.TypesInfo.TypeOf(caseElement)
+			errorInterface := importErrorInterfaceFact(pass, caseType)
+			if errorInterface == nil {
+				continue
+			}
+
+			namedType := getNamedType(caseType)
+			if namedType == nil {
+				continue
+			}
+
+			// Check that the switch expression actually implements the interface in the case.
+			caseTypeInterface, ok := namedType.Underlying().(*types.Interface)
+			if !ok || !types.Implements(exprType, caseTypeInterface) {
+				continue
+			}
+
+			checkIfTypeIsValidSubtypeForInterface(c, errorInterface, caseType, exprType, caseElement)
+		}
+	}
 }
 
 func findConversionsInIndexExpr(c *context, indexExpr *ast.IndexExpr) {
