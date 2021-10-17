@@ -1,5 +1,7 @@
 package funcliteral
 
+import "func_literal/inner"
+
 // Errors:
 //
 //    - some-error --
@@ -15,17 +17,43 @@ func AssignmentInLambda() *Error { // want AssignmentInLambda:"ErrorCodes: some-
 	return err
 }
 
+func namedFunction() error {
+	return &Error{"function-1-error"}
+}
+
 // Errors:
 //
-//    - some-error --
-func OutOfBounds() *Error { // want OutOfBounds:"ErrorCodes: some-error"
+//    - lambda-1-error --
+//    - lambda-2-error --
+//    - function-1-error --
+//    - function-2-error --
+func LambdasReturningErrors() error { // want LambdasReturningErrors:"ErrorCodes: function-1-error function-2-error lambda-1-error lambda-2-error"
+	var getError func() error
 	switch {
 	case true:
-		return &Error{"some-error"}
+		getError = func() error {
+			return &Error{"lambda-2-error"}
+		}
 	case true:
-		return func() *Error { // want "unnamed functions are not supported in error code analysis"
-			return &Error{"other-error"}
+		getError = namedFunction
+	case true:
+		getError = inner.NamedFunction
+	}
+
+	switch {
+	case true:
+		return getError()
+	case true:
+		return func() error {
+			return &Error{"lambda-1-error"}
 		}()
+	}
+	return nil
+}
+
+// Errors: none
+func OutOfBounds() *Error { // want OutOfBounds:"ErrorCodes:"
+	switch {
 	case true:
 		return &Error{func() string { return "other-error" }()} // want "error code field has to be instantiated by constant value"
 	}
