@@ -111,6 +111,16 @@ func (ImplementInner1Interface3) Inner1YesCodes() error { // want Inner1YesCodes
 	return &Error{"interface-2-error"}
 }
 
+// Errors:
+//
+//    - interface-1-error --
+//    - interface-2-error --
+//    - interface-3-error --
+//    - interface-4-error --
+func UsingExternalImplAsExternalInterface(a, b string) error { // want UsingExternalImplAsExternalInterface:"ErrorCodes: interface-1-error interface-2-error interface-3-error interface-4-error"
+	return inner1.FunctionForInterface1(a, b, inner2.ImplementInner1Interface1{})
+}
+
 type ReeError interface {
 	Code() string
 	Message() string

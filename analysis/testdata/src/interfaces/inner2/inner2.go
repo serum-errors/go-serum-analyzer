@@ -1,5 +1,7 @@
 package inner2
 
+import "interfaces/inner1"
+
 type ImplementOuter2 struct{}
 
 // Errors:
@@ -38,6 +40,24 @@ func (*ImplementOuterPointer2) InterfaceMethod2(a, b string) error {
 
 func (*ImplementOuterPointer2) MethodWithoutError(a, b string) string {
 	return a
+}
+
+type ImplementInner1Interface1 struct{}
+
+// Errors:
+//
+//    - interface-2-error --
+func (ImplementInner1Interface1) Inner1Method1() error { // want Inner1Method1:"ErrorCodes: interface-2-error"
+	return &Error{"interface-2-error"}
+}
+
+// Errors: none
+func (ImplementInner1Interface1) Inner1Method2(a, b string) *inner1.Error { // want Inner1Method2:"ErrorCodes:"
+	return nil
+}
+
+func (ImplementInner1Interface1) Inner1MethodWithoutError(a, b string) string {
+	return a + b
 }
 
 type Error struct {

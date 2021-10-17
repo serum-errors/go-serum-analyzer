@@ -539,3 +539,67 @@ func InvalidLocalImplementation() {
 			`cannot use expression as "someLocalInterface" value: method "local2" declares the following error codes which were not part of the interface: \[some-1-error some-2-error]` */
 	_ = local
 }
+
+type (
+	Interface1 interface { // want Interface1:"ErrorInterface: I1"
+		// Errors: none
+		I1() error // want I1:"ErrorCodes:"
+	}
+	Interface2 interface { // want Interface2:"ErrorInterface: I2"
+		// Errors: none
+		I2() error // want I2:"ErrorCodes:"
+	}
+	Interface3 interface { // want Interface3:"ErrorInterface: I3"
+		// Errors: none
+		I3() error // want I3:"ErrorCodes:"
+	}
+	Interface1InvalidImpl struct {
+		_ string
+		_ Interface2
+	}
+	Interface2InvalidImpl struct{}
+	Interface3InvalidImpl struct{}
+)
+
+// Errors:
+//
+//    - unknown-error --
+func (Interface1InvalidImpl) I1() error { // want I1:"ErrorCodes: unknown-error"
+	return &Error{"unknown-error"}
+}
+
+// Errors:
+//
+//    - unknown-error --
+func (Interface2InvalidImpl) I2() error { // want I2:"ErrorCodes: unknown-error"
+	return &Error{"unknown-error"}
+}
+
+// Errors:
+//
+//    - unknown-1-error --
+//    - unknown-2-error --
+//    - unknown-3-error --
+func (Interface3InvalidImpl) I3() error { // want I3:"ErrorCodes: unknown-1-error unknown-2-error unknown-3-error"
+	switch {
+	case true:
+		return &Error{"unknown-1-error"}
+	case true:
+		return &Error{"unknown-2-error"}
+	default:
+		return &Error{"unknown-3-error"}
+	}
+}
+
+func GetInterface2InvalidImpl(_, _ int, _ Interface3) Interface2InvalidImpl {
+	return Interface2InvalidImpl{}
+}
+
+func NestedInvalidConversions(i3 Interface3InvalidImpl) {
+	var i1 Interface1 = Interface1InvalidImpl{"some string", GetInterface2InvalidImpl(1, 2, i3)} /*
+		want
+			`cannot use expression as "Interface1" value: method "I1" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "Interface2" value: method "I2" declares the following error codes which were not part of the interface: \[unknown-error]`
+			`cannot use expression as "Interface3" value: method "I3" declares the following error codes which were not part of the interface: \[unknown-1-error unknown-2-error unknown-3-error]` */
+	_ = i1
+}
