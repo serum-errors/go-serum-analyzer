@@ -88,13 +88,13 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		}
 
 		methodIdent := method.Names[0]
-		codes, err := findErrorDocs(method.Doc)
+		codes, declaredNoCodesOk, err := findErrorDocs(method.Doc)
 		if err != nil {
 			pass.ReportRangef(method, "interface method %q has odd docstring: %s", methodIdent.Name, err)
 			continue
 		}
 
-		if len(codes) == 0 {
+		if len(codes) == 0 && !declaredNoCodesOk {
 			// Exclude Cause() methods of error types from having to declare error codes.
 			interfaceType := pass.TypesInfo.TypeOf(typeSpec.Type)
 			if methodIdent.Name == "Cause" && types.Implements(interfaceType, tReeErrorWithCause) {

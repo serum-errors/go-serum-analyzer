@@ -167,6 +167,41 @@ func DereferenceAssignment2() error { // want DereferenceAssignment2:"ErrorCodes
 	return err
 }
 
+type Io interface { // want Io:"ErrorInterface: FetchFromUrl"
+	// Errors:
+	//
+	//    - io-error -- returned if transfer fails
+	FetchFromUrl(url string) error // want FetchFromUrl:"ErrorCodes: io-error"
+}
+
+type IoImpl struct{}
+
+// Errors:
+//
+//    - io-error -- returned if transfer fails
+func (IoImpl) FetchFromUrl(url string) error { // want FetchFromUrl:"ErrorCodes: io-error"
+	failed := false
+	// do some fancy io stuff ...
+	if failed {
+		return &Error{"io-error"}
+	}
+	return nil
+}
+
+type IoMock struct{}
+
+// Errors: none -- this method only returns error to comply with the IO interface.
+func (IoMock) FetchFromUrl(url string) error { // want FetchFromUrl:"ErrorCodes:"
+	// this is only a mock and does not return errors
+	return nil
+}
+
+func ConsumingIoImplementations() {
+	var io1 Io = IoImpl{}
+	var io2 Io = IoMock{}
+	_, _ = io1, io2
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

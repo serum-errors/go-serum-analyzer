@@ -23,17 +23,31 @@ func Correct() error { // want Correct:"ErrorCodes: hello-error hello-unreachabl
 // Functions that don't return an error, don't have to declare them in an errors docstring.
 func NoError() {}
 
-func One() error { // want `function "One" is exported, but does not declare any error codes`
-	return one()
+func InvalidNoErrors() error { // want `function "InvalidNoErrors" is exported, but does not declare any error codes`
+	return correctNoErrors()
 }
 
-// OneWithComment is demo function.
+// InvalidNoErrorsWithComment is demo function.
 // Erros are not documented in this function which should be detected by our analyzer.
-func OneWithComment() error { // want `function "OneWithComment" is exported, but does not declare any error codes`
-	return one()
+func InvalidNoErrorsWithComment() error { // want `function "InvalidNoErrorsWithComment" is exported, but does not declare any error codes`
+	return correctNoErrors()
 }
 
-func one() error { // no problem if the function is not exported
+func correctNoErrors() error { // no problem if the function is not exported
+	return nil
+}
+
+// CorrectNoErrors1 returns no errors and correctly declares that.
+//
+// Errors: none
+func CorrectNoErrors1() error { // want CorrectNoErrors1:"ErrorCodes:"
+	return nil
+}
+
+// CorrectNoErrors2 returns no errors and correctly declares that.
+//
+// Errors: none -- some optional docu here why no errors are returned
+func CorrectNoErrors2() error { // want CorrectNoErrors2:"ErrorCodes:"
 	return nil
 }
 
@@ -47,7 +61,7 @@ func Two() error { // want `function "Two" has odd docstring: need a blank line 
 	return &Error{"hello-error"}
 }
 
-// Three is a demo function.
+// InvalidRepeatedErrorsDeclaration1 is a demo function.
 // The following errors docstring has multiple 'Errors:' block indicators which is invalid.
 //
 // Errors:
@@ -55,11 +69,11 @@ func Two() error { // want `function "Two" has odd docstring: need a blank line 
 // Errors:
 //
 //    - hello-error -- is always returned.
-func Three() error { // want `function "Three" has odd docstring: repeated 'Errors:' block indicator`
+func InvalidRepeatedErrorsDeclaration1() error { // want `function "InvalidRepeatedErrorsDeclaration1" has odd docstring: repeated 'Errors:' block indicator`
 	return &Error{"hello-error"}
 }
 
-// Four is a demo function.
+// InvalidRepeatedErrorsDeclaration2 is a demo function.
 // The following errors docstring has multiple 'Errors:' block indicators which is invalid.
 //
 // Errors:
@@ -69,8 +83,32 @@ func Three() error { // want `function "Three" has odd docstring: repeated 'Erro
 // Errors:
 //
 //    - hello-error -- is always returned.
-func Four() error { // want `function "Four" has odd docstring: repeated 'Errors:' block indicator`
+func InvalidRepeatedErrorsDeclaration2() error { // want `function "InvalidRepeatedErrorsDeclaration2" has odd docstring: repeated 'Errors:' block indicator`
 	return &Error{"hello-error"}
+}
+
+// InvalidRepeatedErrorsDeclaration3 is a demo function.
+// The following errors docstring has multiple 'Errors:' block indicators which is invalid.
+//
+// Errors: none
+//
+// Errors:
+//
+//    - hello-error -- is always returned.
+func InvalidRepeatedErrorsDeclaration3() error { // want `function "InvalidRepeatedErrorsDeclaration3" has odd docstring: repeated 'Errors:' block indicator`
+	return &Error{"hello-error"}
+}
+
+// InvalidRepeatedErrorsDeclaration4 is a demo function.
+// The following errors docstring has multiple 'Errors:' block indicators which is invalid.
+//
+// Errors:
+//
+//    - hello-error -- is always returned.
+//
+// Errors: none
+func InvalidRepeatedErrorsDeclaration4() error { // want `function "InvalidRepeatedErrorsDeclaration4" has odd docstring: repeated 'Errors:' block indicator`
+	return nil
 }
 
 // Five is a demo function.

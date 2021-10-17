@@ -20,36 +20,47 @@ type state interface {
 //   - a line that is exactly "Errors:" starts a declaration block.
 //   - exactly one blank line must follow, or it's a bad format.
 //   - the next line must match "^- (.*) --", and the captured group is an error code.
-//     - note that this is after leading whitespace strip.  (probably you should indent these, for readability.)
+//     - note that this is after leading whitespace strip. (probably you should indent these, for readability.)
 //     - for simplier parsing, any line that starts with "- " will be slurped,
 //       and we'll consider it an error if the rest of the pattern doesn't follow.
-//     - the capture group can be stripped for whitespace again.  (perhaps the author wanted to align things.)
+//     - the capture group can be stripped for whitespace again. (perhaps the author wanted to align things.)
 //     - the error code has to be valid, which means it has to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$"
-//   - this may repeat.  if lines do not start that that pattern, they are skipped.
-//      - note that the same code may appear multiple times.  this is acceptable, and should be deduplicated.
+//   - this may repeat. if lines do not start that that pattern, they are skipped.
+//      - note that the same code may appear multiple times. this is acceptable, and should be deduplicated.
 //   - when there's another fully blank line, the parse is ended.
+//   - instead of the standard decleration block it is also permitted to declare that a function does not return codes.
+//      - such a line must match "Errors: none(.*)".
+//      - this allows documentation; for example: "Errors: none -- this method only returns error to comply with the foobar interface."
 // This format happens to be amenable to letting you write the closest thing godocs have to a list.
 // (You should probably indent things "enough" to make that render right, but we're not checking that here right now.)
 //
 // If there are no error declarations, (nil, nil) is returned.
 // If there's what looks like an error declaration, but funny looking, an error is returned.
 type findErrorDocsSM struct {
-	seen  CodeSet
-	state state
+	seen      CodeSet
+	state     state
+	noCodesOk bool
 }
 
-func (sm findErrorDocsSM) run(doc string) (CodeSet, error) {
+// run runs the state machine to find error codes in the provided doc string.
+//
+// The method returns a set of found codes,
+// a bool which is true if the function declared "Errors: none",
+// an error in case of invalid doc strings or nil otherwise.
+func (sm findErrorDocsSM) run(doc string) (CodeSet, bool, error) {
 	sm.seen = CodeSet{}
 	sm.state = stateInit{}
+	sm.noCodesOk = false
 
 	for _, line := range strings.Split(doc, "\n") {
 		line := strings.TrimSpace(line)
 		err := sm.state.step(&sm, line)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return sm.seen, nil
+
+	return sm.seen, sm.noCodesOk, nil
 }
 
 type (
@@ -62,6 +73,9 @@ type (
 func (stateInit) step(sm *findErrorDocsSM, line string) error {
 	if line == "Errors:" {
 		sm.state = stateNeedBlankLine{}
+	} else if strings.HasPrefix(line, "Errors: none") {
+		sm.noCodesOk = true
+		sm.state = stateDone{}
 	}
 	return nil
 }
@@ -79,7 +93,7 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 	switch {
 	case line == "":
 		sm.state = stateDone{}
-	case line == "Errors:":
+	case strings.HasPrefix(line, "Errors:"):
 		return fmt.Errorf("repeated 'Errors:' block indicator")
 	case strings.HasPrefix(line, "- "):
 		end := strings.Index(line, " --")
@@ -108,7 +122,7 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 }
 
 func (stateDone) step(sm *findErrorDocsSM, line string) error {
-	if line == "Errors:" {
+	if strings.HasPrefix(line, "Errors:") {
 		return fmt.Errorf("repeated 'Errors:' block indicator")
 	}
 	return nil

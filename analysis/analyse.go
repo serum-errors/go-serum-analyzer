@@ -139,9 +139,9 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 }, nil).Complete()
 
 // findErrorDocs looks at the given comments and tries to find error code declarations.
-func findErrorDocs(comments *ast.CommentGroup) (CodeSet, error) {
+func findErrorDocs(comments *ast.CommentGroup) (CodeSet, bool, error) {
 	if comments == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	return findErrorDocsSM{}.run(comments.Text())
 }
@@ -198,13 +198,13 @@ func checkFunctionReturnsError(pass *analysis.Pass, funcType *ast.FuncType) bool
 func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) funcCodes {
 	result := funcCodes{}
 	for _, funcDecl := range funcsToAnalyse {
-		codes, err := findErrorDocs(funcDecl.Doc)
+		codes, declaredNoCodesOk, err := findErrorDocs(funcDecl.Doc)
 		if err != nil {
 			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
 			continue
 		}
 
-		if len(codes) == 0 {
+		if len(codes) == 0 && !declaredNoCodesOk {
 			// Exclude Cause() methods of error types from having to declare error codes.
 			// If a Cause() method declares error codes, treat it like every other method.
 			if isMethod(funcDecl) {
