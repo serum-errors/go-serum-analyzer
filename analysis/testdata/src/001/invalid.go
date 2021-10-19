@@ -118,7 +118,7 @@ func getLambda() func() error {
 //    - some-error --
 func InvalidErrorFromLambda() error { // want InvalidErrorFromLambda:"ErrorCodes: some-error"
 	if false {
-		return getLambda()() // want "unnamed functions are not supported in error code analysis"
+		return getLambda()() // want "invalid error source: definition of the unnamed function could not be found"
 	}
 	return &Error{"some-error"}
 }

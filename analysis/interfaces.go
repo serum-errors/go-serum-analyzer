@@ -639,7 +639,7 @@ func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInte
 			methodDecl := lookup.searchMethod(pass, exprType, methodName)
 			foundCodes, ok = lookup.foundCodes[methodDecl]
 			if !ok {
-				foundCodes = findErrorCodesInFunc(c, methodDecl)
+				foundCodes = findErrorCodesInFunc(c, &funcDefinition{methodDecl, nil})
 			}
 		}
 
