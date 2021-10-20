@@ -488,6 +488,8 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 				calledFunc.funcDecl = funcDecl
 			case *ast.TypeSpec: // Type conversion
 				return extractErrorCodesFromAffector(pass, lookup, startingFunc, callExpr)
+			case *ast.ValueSpec: // Lambda function call
+				// TODO
 			}
 		}
 	case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
@@ -547,7 +549,11 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 		}
 
 		if ident.Obj == nil || ident.Obj.Pos() <= withinPos || ident.Obj.Pos() >= within.body().End() {
-			pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
+			if within.funcDecl != nil { // expression is inside a function
+				pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
+			} else { // expression is inside a lambda (function literal)
+				pass.ReportRangef(ident, "returned error may not be a parameter, global variable or other variables declared outside of the function body")
+			}
 		}
 	}
 

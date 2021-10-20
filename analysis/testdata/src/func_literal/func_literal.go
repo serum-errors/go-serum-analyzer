@@ -83,7 +83,7 @@ func OutOfBounds() *Error { // want OutOfBounds:"ErrorCodes:"
 	case true:
 		err := &Error{"context-error"}
 		return func() *Error {
-			return err // want "invalid"
+			return err // want "returned error may not be a parameter, global variable or other variables declared outside of the function body"
 		}()
 	}
 	return nil
