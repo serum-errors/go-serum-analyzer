@@ -202,6 +202,14 @@ func ConsumingIoImplementations() {
 	_, _ = io1, io2
 }
 
+// Errors:
+//
+//    - var-error --
+func DefinitionWithoutAssignment() error { // want DefinitionWithoutAssignment:"ErrorCodes: var-error"
+	var err error = &Error{"var-error"}
+	return err
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

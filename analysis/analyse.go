@@ -457,27 +457,34 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{
 //   - a CallExpr that crosses package boundaries (get declared error codes or fail)
 //   - a CallExpr that's an interface (we can't really look deeper than that)
 //   - a CallExpr that targets another function in this package (recurse or load from cache)
-//   - a CallExpr that targets a function literal (not handled)
+//   - a CallExpr that targets a function literal
 func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, startingFunc *funcDefinition) CodeSet {
+	callee := typeutil.Callee(c.pass.TypesInfo, callExpr)
+	return findErrorCodesFromFunctionCall(c, callExpr.Fun, startingFunc, callee, callExpr)
+}
+
+// findErrorCodesFromFunctionCall finds error codes that originate from the given function or method if it was called.
+//
+// The provided callExpr can be nil if no respective *ast.CallExpr exists.
+func findErrorCodesFromFunctionCall(c *context, calledFunction ast.Expr, startingFunc *funcDefinition, callee types.Object, callExpr *ast.CallExpr) CodeSet {
 	pass, lookup, scc := c.pass, c.lookup, c.scc
 
-	// For a CallExpr we first look if the error codes are already computed and stored as a fact.
+	// We first look if the error codes are already computed and stored as a fact.
 	// If so we use those, otherwise we try to recurse and compute error codes for that function.
-	callee := typeutil.Callee(pass.TypesInfo, callExpr)
 	var fact ErrorCodes
 	if callee != nil && pass.ImportObjectFact(callee, &fact) {
 		return fact.Codes
 	}
 
-	calledFunc := funcDefinition{nil, nil}
+	calledFuncDef := funcDefinition{nil, nil}
 
-	switch calledExpression := callExpr.Fun.(type) {
+	switch calledExpression := calledFunction.(type) {
 	case *ast.Ident: // this is what calls in your own package look like.
 		if calledExpression.Obj == nil {
 			function, ok := lookup.functions[calledExpression.Name]
 
 			if ok {
-				calledFunc.funcDecl = function
+				calledFuncDef.funcDecl = function
 			} else {
 				pass.ReportRangef(calledExpression, "function %q in dot-imported package does not declare error codes", calledExpression.Name)
 				return Set()
@@ -485,11 +492,15 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 		} else {
 			switch funcDecl := calledExpression.Obj.Decl.(type) {
 			case *ast.FuncDecl: // Noramal function call
-				calledFunc.funcDecl = funcDecl
+				calledFuncDef.funcDecl = funcDecl
 			case *ast.TypeSpec: // Type conversion
-				return extractErrorCodesFromAffector(pass, lookup, startingFunc, callExpr)
-			case *ast.ValueSpec: // Lambda function call
-				// TODO
+				if callExpr != nil {
+					return extractErrorCodesFromAffector(pass, lookup, startingFunc, callExpr)
+				} else {
+					return Set()
+				}
+			default: // Lambda function call (e.g. *ast.ValueSpec, *ast.AssignStmt)
+				return findErrorCodesFromAllAssignedLambdas(c, map[*ast.Ident]struct{}{}, calledExpression, startingFunc)
 			}
 		}
 	case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
@@ -504,9 +515,9 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 		// This case is gonna be harder than functions: We need to figure out which function declaration applies,
 		// because there is no object information provided for methods calls.
 		selection := pass.TypesInfo.Selections[calledExpression]
-		calledFunc.funcDecl = lookup.searchMethod(pass, selection.Recv(), calledExpression.Sel.Name)
+		calledFuncDef.funcDecl = lookup.searchMethod(pass, selection.Recv(), calledExpression.Sel.Name)
 	case *ast.FuncLit:
-		calledFunc.funcLit = calledExpression
+		calledFuncDef.funcLit = calledExpression
 	default:
 		pass.ReportRangef(calledExpression, "invalid error source: definition of the unnamed function could not be found")
 		return Set()
@@ -514,18 +525,91 @@ func findErrorCodesInCallExpression(c *context, callExpr *ast.CallExpr, starting
 
 	result := Set()
 
-	if calledFunc.funcDecl != nil || calledFunc.funcLit != nil {
-		shouldRecurse := scc.HandleEdge(startingFunc.node(), calledFunc.node())
+	if calledFuncDef.funcDecl != nil || calledFuncDef.funcLit != nil {
+		shouldRecurse := scc.HandleEdge(startingFunc.node(), calledFuncDef.node())
 		if shouldRecurse {
-			result = findErrorCodesInFunc(c, &calledFunc)
-			scc.AfterRecurse(startingFunc.node(), calledFunc.node())
-		} else if cachedResult, ok := lookup.foundCodes[calledFunc.node()]; ok {
+			result = findErrorCodesInFunc(c, &calledFuncDef)
+			scc.AfterRecurse(startingFunc.node(), calledFuncDef.node())
+		} else if cachedResult, ok := lookup.foundCodes[calledFuncDef.node()]; ok {
 			result = cachedResult
 		}
 	} else {
 		// Could e.g. be a method which is defined in another package
-		pass.ReportRangef(callExpr.Fun, "called function does not declare error codes")
+		pass.ReportRangef(calledFunction, "called function does not declare error codes")
 	}
+
+	return result
+}
+
+// findErrorCodesFromAllAssignedLambdas finds error codes in the given function,
+// by looking into the definition of all lambdas directly or indirectly assigned to the given identifier.
+func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, function *funcDefinition) CodeSet {
+	pass := c.pass
+
+	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
+	if _, ok := visitedIdents[ident]; ok {
+		return nil
+	}
+	visitedIdents[ident] = struct{}{}
+
+	if isIdentOriginOutsideFunctionScope(function, ident) {
+		if function.funcDecl != nil { // expression is inside a function
+			pass.ReportRangef(ident, "error returning function literal may not be a parameter, receiver or global variable")
+		} else { // expression is inside a lambda (function literal)
+			pass.ReportRangef(ident, "error returning function literal may not be a parameter, global variable or other variables declared outside of the function body")
+		}
+		return nil
+	}
+
+	result := Set()
+
+	// Check if there can be an error codes extracted from the ident declaration statement if there is any.
+	// TODO
+
+	ast.Inspect(function.body(), func(node ast.Node) bool {
+		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
+		assignment, ok := node.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+
+		// Look for our ident's object in the left-hand-side of the assign.
+		// Either follow up on the statement at the same index in the Rhs,
+		// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
+		for i, lhsEntry := range assignment.Lhs {
+			lhsEntry, ok := lhsEntry.(*ast.Ident)
+			if !ok {
+				continue
+			}
+
+			if lhsEntry.Obj != ident.Obj {
+				continue
+			}
+
+			if len(assignment.Lhs) != len(assignment.Rhs) {
+				pass.ReportRangef(assignment.Rhs[0], "unsupported: assignment to variable %q can only be an identifier or function literal", lhsEntry.Name)
+			} else {
+				var newCodes CodeSet
+				switch rhsEntry := assignment.Rhs[i].(type) {
+				case *ast.FuncLit:
+					newCodes = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
+				case *ast.Ident:
+					if rhsEntry.Obj != nil && rhsEntry.Obj.Kind == ast.Var {
+						newCodes = findErrorCodesFromAllAssignedLambdas(c, visitedIdents, rhsEntry, function)
+					} else {
+						newCodes = findErrorCodesFromFunctionCall(c, rhsEntry, function, pass.TypesInfo.Uses[rhsEntry], nil)
+					}
+				case *ast.SelectorExpr:
+					// TODO: Named function from other package
+				default:
+					pass.ReportRangef(rhsEntry, "unsupported: assignment to variable %q can only be an identifier or function literal", lhsEntry.Name)
+				}
+				result = Union(result, newCodes)
+			}
+		}
+
+		return true
+	})
 
 	return result
 }
@@ -541,26 +625,18 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 	visitedIdents[ident] = struct{}{}
 
 	// Check that the identifier is a local variable.
-	if ident.Name != "nil" {
-		withinPos := within.body().Pos()
-		if within.Type().Results != nil {
-			// Results are allowed too, because named results may be declared there.
-			withinPos = within.Type().Results.Pos()
-		}
-
-		if ident.Obj == nil || ident.Obj.Pos() <= withinPos || ident.Obj.Pos() >= within.body().End() {
-			if within.funcDecl != nil { // expression is inside a function
-				pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
-			} else { // expression is inside a lambda (function literal)
-				pass.ReportRangef(ident, "returned error may not be a parameter, global variable or other variables declared outside of the function body")
-			}
+	if isIdentOriginOutsideFunctionScope(within, ident) {
+		if within.funcDecl != nil { // expression is inside a function
+			pass.ReportRangef(ident, "returned error may not be a parameter, receiver or global variable")
+		} else { // expression is inside a lambda (function literal)
+			pass.ReportRangef(ident, "returned error may not be a parameter, global variable or other variables declared outside of the function body")
 		}
 	}
 
 	result := Set()
 
 	// Look for for `*ast.AssignStmt` in the function that could've affected this.
-	ast.Inspect(within.node(), func(node ast.Node) bool {
+	ast.Inspect(within.body(), func(node ast.Node) bool {
 		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
 		assignment, ok := node.(*ast.AssignStmt)
 		if !ok {
@@ -608,6 +684,23 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 	})
 
 	return result
+}
+
+// isIdentOriginOutsideFunctionScope checks if the origin of the given ident is outside of the scope of the given function.
+func isIdentOriginOutsideFunctionScope(function *funcDefinition, ident *ast.Ident) bool {
+	if ident.Name == "nil" {
+		return false
+	}
+
+	functionPos := function.body().Pos()
+	if function.Type().Results != nil {
+		// Results are allowed too, because named results may be declared there.
+		functionPos = function.Type().Results.Pos()
+	}
+
+	return ident.Obj == nil ||
+		ident.Obj.Pos() <= functionPos ||
+		ident.Obj.Pos() >= function.body().End()
 }
 
 // findCodesAssignedToErrorCodeField searches through the given assignment and returns every constant code assigned to the error code field.
