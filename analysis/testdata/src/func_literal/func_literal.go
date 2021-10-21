@@ -32,7 +32,8 @@ func namedFunction() error {
 //    - lambda-7-error --
 //    - function-1-error --
 //    - function-2-error --
-func LambdasReturningErrors() error { // want LambdasReturningErrors:"ErrorCodes: function-1-error function-2-error lambda-1-error lambda-2-error lambda-3-error lambda-4-error lambda-5-error lambda-6-error lambda-7-error"
+//    - other-function-error --
+func LambdasReturningErrors() error { // want LambdasReturningErrors:"ErrorCodes: function-1-error function-2-error lambda-1-error lambda-2-error lambda-3-error lambda-4-error lambda-5-error lambda-6-error lambda-7-error other-function-error"
 	var getError func() error = func() error {
 		return &Error{"lambda-4-error"}
 	}
@@ -44,6 +45,8 @@ func LambdasReturningErrors() error { // want LambdasReturningErrors:"ErrorCodes
 		}
 	case true:
 		getError = namedFunction
+	case true:
+		getError = namedFunctionInOtherFile
 	case true:
 		getError = inner.NamedFunction
 	}

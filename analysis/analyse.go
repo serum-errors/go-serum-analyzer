@@ -541,6 +541,27 @@ func findErrorCodesFromFunctionCall(c *context, calledFunction ast.Expr, startin
 	return result
 }
 
+// findValueForIdentInValueSpec finds the respective value for the given ident if
+// the ident was declared in a ast.ValueSpec and a value was assigned at declaration.
+func findValueForIdentInValueSpec(ident *ast.Ident) ast.Expr {
+	if ident == nil || ident.Obj == nil {
+		return nil
+	}
+
+	spec, ok := ident.Obj.Decl.(*ast.ValueSpec)
+	if !ok || len(spec.Values) == 0 {
+		return nil
+	}
+
+	for i, specIdent := range spec.Names {
+		if ident.Obj == specIdent.Obj {
+			return spec.Values[i]
+		}
+	}
+
+	return nil
+}
+
 // findErrorCodesFromAllAssignedLambdas finds error codes in the given function,
 // by looking into the definition of all lambdas directly or indirectly assigned to the given identifier.
 func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, function *funcDefinition) CodeSet {
@@ -561,10 +582,15 @@ func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ide
 		return nil
 	}
 
-	result := Set()
+	var result CodeSet
 
 	// Check if there can be an error codes extracted from the ident declaration statement if there is any.
-	// TODO
+	initValue := findValueForIdentInValueSpec(ident)
+	if initValue != nil {
+		result = findErrorCodesInLambdaAssignment(c, visitedIdents, ident, initValue, function)
+	} else {
+		result = Set()
+	}
 
 	ast.Inspect(function.body(), func(node ast.Node) bool {
 		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
@@ -589,27 +615,35 @@ func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ide
 			if len(assignment.Lhs) != len(assignment.Rhs) {
 				pass.ReportRangef(assignment.Rhs[0], "unsupported: assignment to variable %q can only be an identifier or function literal", lhsEntry.Name)
 			} else {
-				var newCodes CodeSet
-				switch rhsEntry := assignment.Rhs[i].(type) {
-				case *ast.FuncLit:
-					newCodes = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
-				case *ast.Ident:
-					if rhsEntry.Obj != nil && rhsEntry.Obj.Kind == ast.Var {
-						newCodes = findErrorCodesFromAllAssignedLambdas(c, visitedIdents, rhsEntry, function)
-					} else {
-						newCodes = findErrorCodesFromFunctionCall(c, rhsEntry, function, pass.TypesInfo.Uses[rhsEntry], nil)
-					}
-				case *ast.SelectorExpr:
-					// TODO: Named function from other package
-				default:
-					pass.ReportRangef(rhsEntry, "unsupported: assignment to variable %q can only be an identifier or function literal", lhsEntry.Name)
-				}
+				newCodes := findErrorCodesInLambdaAssignment(c, visitedIdents, ident, assignment.Rhs[i], function)
 				result = Union(result, newCodes)
 			}
 		}
 
 		return true
 	})
+
+	return result
+}
+
+func findErrorCodesInLambdaAssignment(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, assignedExpr ast.Expr, function *funcDefinition) CodeSet {
+	pass := c.pass
+	var result CodeSet
+
+	switch rhsEntry := assignedExpr.(type) {
+	case *ast.FuncLit:
+		result = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
+	case *ast.Ident:
+		if rhsEntry.Obj != nil && rhsEntry.Obj.Kind == ast.Var {
+			result = findErrorCodesFromAllAssignedLambdas(c, visitedIdents, rhsEntry, function)
+		} else {
+			result = findErrorCodesFromFunctionCall(c, rhsEntry, function, pass.TypesInfo.Uses[rhsEntry], nil)
+		}
+	case *ast.SelectorExpr:
+		// TODO: Named function from other package
+	default:
+		pass.ReportRangef(rhsEntry, "unsupported: assignment to variable %q can only be an identifier or function literal", ident.Name)
+	}
 
 	return result
 }
