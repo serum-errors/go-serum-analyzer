@@ -628,19 +628,26 @@ func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ide
 
 func findErrorCodesInLambdaAssignment(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, assignedExpr ast.Expr, function *funcDefinition) CodeSet {
 	pass := c.pass
-	var result CodeSet
+	result := Set()
 
 	switch rhsEntry := assignedExpr.(type) {
 	case *ast.FuncLit:
 		result = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
-	case *ast.Ident:
+	case *ast.Ident: // other lambda variable or name of a function
 		if rhsEntry.Obj != nil && rhsEntry.Obj.Kind == ast.Var {
 			result = findErrorCodesFromAllAssignedLambdas(c, visitedIdents, rhsEntry, function)
 		} else {
-			result = findErrorCodesFromFunctionCall(c, rhsEntry, function, pass.TypesInfo.Uses[rhsEntry], nil)
+			callee := pass.TypesInfo.Uses[rhsEntry]
+			result = findErrorCodesFromFunctionCall(c, rhsEntry, function, callee, nil)
 		}
-	case *ast.SelectorExpr:
-		// TODO: Named function from other package
+	case *ast.SelectorExpr: // name of a function in other package
+		var callee types.Object
+		if sel, ok := pass.TypesInfo.Selections[rhsEntry]; ok {
+			callee = sel.Obj()
+		} else {
+			callee = pass.TypesInfo.Uses[rhsEntry.Sel]
+		}
+		result = findErrorCodesFromFunctionCall(c, rhsEntry, function, callee, nil)
 	default:
 		pass.ReportRangef(rhsEntry, "unsupported: assignment to variable %q can only be an identifier or function literal", ident.Name)
 	}
