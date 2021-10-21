@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
@@ -201,9 +202,11 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 				panic("should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
 			}
 
+			returnResult := astutil.Unparen(node.Results[0])
+
 			// If the return statement returns a constant string value:
 			// Check if it is a valid error code and if so add it to the error code constants.
-			returnType := pass.TypesInfo.Types[node.Results[0]]
+			returnType := pass.TypesInfo.Types[returnResult]
 			if returnType.Value != nil {
 				value, err := getErrorCodeFromConstant(returnType.Value)
 				if err == nil {
@@ -216,9 +219,9 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 
 			// Otherwise check if a single field is returned.
 			// Make sure that always the same field is returned and otherwise emit a diagnostic.
-			expression, ok := node.Results[0].(*ast.SelectorExpr)
+			expression, ok := returnResult.(*ast.SelectorExpr)
 			if ok && receiver != nil {
-				ident, ok := expression.X.(*ast.Ident)
+				ident, ok := astutil.Unparen(expression.X).(*ast.Ident)
 				if ok && ident.Obj == receiver.Obj {
 					if fieldName == nil {
 						fieldName = expression.Sel

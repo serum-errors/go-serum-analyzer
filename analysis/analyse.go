@@ -13,6 +13,7 @@ import (
 	"github.com/warpfork/go-ree/analysis/scc"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -424,7 +425,7 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{}, expr ast.Expr, startingFunc *funcDefinition) CodeSet {
 	pass, lookup := c.pass, c.lookup
 
-	switch expr := expr.(type) {
+	switch expr := astutil.Unparen(expr).(type) {
 	case *ast.CallExpr:
 		return findErrorCodesInCallExpression(c, expr, startingFunc)
 	case *ast.Ident:
@@ -432,7 +433,7 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Ident]struct{
 	case *ast.UnaryExpr:
 		// This might be creating a pointer, which might fulfill the error interface.  If so, we're done (and it's important to remember the pointerness).
 		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) {
-			if ident, ok := expr.X.(*ast.Ident); ok {
+			if ident, ok := astutil.Unparen(expr.X).(*ast.Ident); ok {
 				return findErrorCodesFromIdentTaint(c, visitedIdents, ident, startingFunc)
 			} else {
 				return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
@@ -478,7 +479,7 @@ func findErrorCodesFromFunctionCall(c *context, calledFunction ast.Expr, startin
 
 	calledFuncDef := funcDefinition{nil, nil}
 
-	switch calledExpression := calledFunction.(type) {
+	switch calledExpression := astutil.Unparen(calledFunction).(type) {
 	case *ast.Ident: // this is what calls in your own package look like.
 		if calledExpression.Obj == nil {
 			function, ok := lookup.functions[calledExpression.Name]
@@ -504,7 +505,7 @@ func findErrorCodesFromFunctionCall(c *context, calledFunction ast.Expr, startin
 			}
 		}
 	case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
-		if target, ok := calledExpression.X.(*ast.Ident); ok {
+		if target, ok := astutil.Unparen(calledExpression.X).(*ast.Ident); ok {
 			if obj, ok := pass.TypesInfo.ObjectOf(target).(*types.PkgName); ok {
 				// We're calling a function in a package that does not have declared error codes
 				pass.ReportRangef(calledExpression, "function %q in package %q does not declare error codes", calledExpression.Sel.Name, obj.Imported().Name())
@@ -630,7 +631,7 @@ func findErrorCodesInLambdaAssignment(c *context, visitedIdents map[*ast.Ident]s
 	pass := c.pass
 	result := Set()
 
-	switch rhsEntry := assignedExpr.(type) {
+	switch rhsEntry := astutil.Unparen(assignedExpr).(type) {
 	case *ast.FuncLit:
 		result = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
 	case *ast.Ident: // other lambda variable or name of a function
@@ -819,7 +820,7 @@ func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, function *funcDe
 		return "", fmt.Errorf("cannot extract field error code without field definition")
 	}
 
-	switch expr := expr.(type) {
+	switch expr := astutil.Unparen(expr).(type) {
 	case *ast.CompositeLit:
 		// Key-based composite literal:
 		// Use the field name to find the error code.

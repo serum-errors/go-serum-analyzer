@@ -84,6 +84,71 @@ func LambdasReturningErrors() error { // want LambdasReturningErrors:"ErrorCodes
 	return nil
 }
 
+// Errors:
+//
+//    - lambda-1-error --
+//    - lambda-2-error --
+//    - lambda-3-error --
+//    - lambda-4-error --
+//    - lambda-5-error --
+//    - lambda-6-error --
+//    - lambda-7-error --
+//    - function-1-error --
+//    - function-2-error --
+//    - other-function-error --
+func LambdasReturningErrorsWithParen() error { // want LambdasReturningErrorsWithParen:"ErrorCodes: function-1-error function-2-error lambda-1-error lambda-2-error lambda-3-error lambda-4-error lambda-5-error lambda-6-error lambda-7-error other-function-error"
+	var getError func() error = (func() error {
+		return &Error{"lambda-4-error"}
+	})
+
+	switch {
+	case true:
+		getError = func() error {
+			for {
+				return (&Error{"lambda-2-error"})
+			}
+		}
+	case true:
+		getError = (namedFunction)
+	case true:
+		getError = (namedFunctionInOtherFile)
+	case true:
+		getError = (inner.NamedFunction)
+	}
+
+	getError2 := func() error {
+		return &(Error{"lambda-5-error"})
+	}
+	_, getError3 := true, (func() error {
+		return &Error{("lambda-6-error")}
+	})
+	if false {
+		getError3 = func() error {
+			return (&(Error{"lambda-7-error"}))
+		}
+	} else {
+		getError3 = (getError2)
+	}
+
+	switch {
+	case true:
+		return (getError)()
+	case true:
+		return (getError3)()
+	case true:
+		return func() error {
+			return &Error{"lambda-1-error"}
+		}()
+	case true:
+		return func() error {
+			return ((func() *Error {
+				return &Error{"lambda-3-error"}
+			})())
+		}()
+	}
+	return nil
+}
+
 func returningLambda() func() *Error {
 	return func() *Error {
 		return &Error{"lambda-error"}
