@@ -39,6 +39,42 @@ type WithInvalidMethods interface {
 	InvalidMethod1() (error, string) // want "error should be returned as the last argument"
 }
 
+type (
+	EmbeddedSimpleInterface interface {
+		SimpleInterface
+	}
+
+	EmbeddedMultipleInterfaces interface {
+		SimpleInterface
+		SimpleInterface2 // want "invalid: error code mismatch"
+		OtherSimpleInterface
+	}
+
+	SimpleInterface2 interface { // want SimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
+		// Errors:
+		//
+		//    - interface-2-error -- could potentially be returned
+		//    - interface-3-error -- could potentially be returned
+		SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: interface-2-error interface-3-error"
+	}
+
+	OtherSimpleInterface interface { // want OtherSimpleInterface:"ErrorInterface: OtherMethod"
+		// Errors:
+		//
+		//    - interface-5-error --
+		OtherMethod() error // want OtherMethod:"ErrorCodes: interface-5-error"
+	}
+
+	EmbeddedSimpleInterface2 interface { // want EmbeddedSimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
+		SimpleInterface
+		// Errors:
+		//
+		//    - interface-1-error -- could potentially be returned
+		//    - interface-3-error -- could potentially be returned
+		SimpleInterfaceMethod() error // want "invalid: error code mismatch"
+	}
+)
+
 // Errors:
 //
 //    - interface-1-error --
@@ -134,6 +170,18 @@ type ReeError interface {
 //    - ree-error --
 func ReturnReeError() ReeError { // want ReturnReeError:"ErrorCodes: ree-error"
 	return &Error{"ree-error"}
+}
+
+// Errors:
+//
+//    - interface-1-error --
+//    - interface-2-error --
+func CallEmbeddedInterface(param EmbeddedSimpleInterface) error { // want CallEmbeddedInterface:"ErrorCodes: interface-1-error interface-2-error"
+	return param.SimpleInterfaceMethod()
+}
+
+func ConvertEmbeddedInterface(param EmbeddedSimpleInterface) SimpleInterface {
+	return param
 }
 
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`

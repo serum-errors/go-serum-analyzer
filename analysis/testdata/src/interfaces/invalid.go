@@ -603,3 +603,7 @@ func NestedInvalidConversions(i3 Interface3InvalidImpl) {
 			`cannot use expression as "Interface3" value: method "I3" declares the following error codes which were not part of the interface: \[unknown-1-error unknown-2-error unknown-3-error]` */
 	_ = i1
 }
+
+func InvalidEmbeddedInterface() EmbeddedSimpleInterface {
+	return InvalidSimpleImpl{} // want `cannot use expression as "EmbeddedSimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+}
