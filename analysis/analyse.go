@@ -158,6 +158,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Out of funcsToAnalyse get all functions that declare error codes and the actual codes they declare.
 	// In the remaining analysis we only look at the functions that declare error codes or get called by an analysed function.
 	funcClaims := findClaimedErrorCodes(pass, funcsToAnalyse)
+	exportErrorConstructorFacts(pass, funcClaims)
 
 	// Okay -- let's look at the functions that have made claims about their error codes.
 	// We'll explore deeply to find everything that can actually affect their error return value.
@@ -266,7 +267,7 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 			continue
 		}
 
-		errorCodeParam, ok := findErrorCodeParamIdent(pass, funcDecl, errorCodeParamName)
+		errorCodeParam, ok := findErrorCodeParamIdent(pass, funcDecl.Type, errorCodeParamName)
 		if !ok {
 			continue
 		}
@@ -296,13 +297,13 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 
 // findErrorCodeParamIdent tries to finds the error code param identifier in the parameter list
 // of the given function using the name of the parameter.
-func findErrorCodeParamIdent(pass *analysis.Pass, funcDecl *ast.FuncDecl, errorCodeParamName string) (*funcCodeParam, bool) {
+func findErrorCodeParamIdent(pass *analysis.Pass, funcType *ast.FuncType, errorCodeParamName string) (*funcCodeParam, bool) {
 	if errorCodeParamName == "" {
 		return nil, true
 	}
 
 	position := 0
-	for _, param := range funcDecl.Type.Params.List { // Type and Params are never nil
+	for _, param := range funcType.Params.List { // Params is never nil
 		for _, paramIdent := range param.Names {
 			if paramIdent.Name != errorCodeParamName {
 				position++
@@ -319,8 +320,35 @@ func findErrorCodeParamIdent(pass *analysis.Pass, funcDecl *ast.FuncDecl, errorC
 		}
 	}
 
-	pass.Reportf(funcDecl.Pos(), "declared error code parameter %q could not be found in parameter list", errorCodeParamName)
+	pass.Reportf(funcType.Pos(), "declared error code parameter %q could not be found in parameter list", errorCodeParamName)
 	return nil, false
+}
+
+// exportErrorConstructorFacts exports all error code params for each function in the given map as facts.
+func exportErrorConstructorFacts(pass *analysis.Pass, codes funcCodesMap) {
+	for funcDecl, funcCodes := range codes {
+		if funcCodes.param != nil {
+			exportErrorConstructorFact(pass, funcDecl.Name, funcCodes.param)
+		}
+	}
+}
+
+// exportErrorConstructorFact exports the error code param for the given function as an ErrorConstructor fact.
+func exportErrorConstructorFact(pass *analysis.Pass, funcIdent *ast.Ident, param *funcCodeParam) {
+	definition, ok := pass.TypesInfo.Defs[funcIdent]
+	if !ok {
+		logf("Could not find definition for function %q!", funcIdent.Name)
+		return
+	}
+
+	fn, ok := definition.(*types.Func)
+	if !ok {
+		logf("Definition for given identifier %q is not a function!", funcIdent.Name)
+		return
+	}
+
+	fact := &ErrorConstructor{param.position}
+	pass.ExportObjectFact(fn, fact)
 }
 
 // exportErrorCodeFacts exports all codes for each function in the given map as facts.
@@ -344,8 +372,8 @@ func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes CodeS
 		return
 	}
 
-	fact := ErrorCodes{codes}
-	pass.ExportObjectFact(fn, &fact)
+	fact := &ErrorCodes{codes}
+	pass.ExportObjectFact(fn, fact)
 }
 
 // extractErrorCodesFromAffector extracts all error codes from the given affectors and returns them.

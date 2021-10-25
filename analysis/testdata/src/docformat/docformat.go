@@ -205,7 +205,7 @@ func InvalidCodeFormat5() error { // want `function "InvalidCodeFormat5" has odd
 //
 //    - param: code1 --
 //    - param: code2 --
-func InvalidConstructor1(code1, code2 string) error { // want `function "InvalidConstructor1" has odd docstring: cannot define more than one error code parameter \(found multiple 'param:' inidicators)`
+func InvalidConstructor1(code1, code2 string) error { // want `function "InvalidConstructor1" has odd docstring: cannot define more than one error code parameter \(found multiple 'param:' inidicators\)`
 	return nil
 }
 

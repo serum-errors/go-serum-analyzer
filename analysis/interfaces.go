@@ -38,7 +38,7 @@ func (e *ErrorInterface) String() string {
 // methods that declare error codes.
 type errorInterfaceWithCodes struct {
 	InterfaceIdent *ast.Ident
-	ErrorMethods   map[*ast.Ident]CodeSet
+	ErrorMethods   map[*ast.Ident]funcCodes
 }
 
 func findErrorReturningInterfaces(pass *analysis.Pass) []*errorInterfaceWithCodes {
@@ -79,7 +79,7 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		return nil
 	}
 
-	result := errorInterfaceWithCodes{typeSpec.Name, map[*ast.Ident]CodeSet{}}
+	result := errorInterfaceWithCodes{typeSpec.Name, map[*ast.Ident]funcCodes{}}
 
 	for _, method := range interfaceType.Methods.List {
 		funcType, ok := method.Type.(*ast.FuncType)
@@ -88,13 +88,24 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		}
 
 		methodIdent := method.Names[0]
-		codes, _, declaredNoCodesOk, err := findErrorDocs(method.Doc) // TODO
+		codes, errorCodeParamName, declaredNoCodesOk, err := findErrorDocs(method.Doc)
 		if err != nil {
 			pass.ReportRangef(method, "interface method %q has odd docstring: %s", methodIdent.Name, err)
 			continue
 		}
 
-		if len(codes) == 0 && !declaredNoCodesOk {
+		// TODO: Implement support, then remove this check
+		if errorCodeParamName != "" {
+			pass.ReportRangef(method, "declaration of error constructors in interfaces is currently not supported")
+			continue
+		}
+
+		errorCodeParam, ok := findErrorCodeParamIdent(pass, funcType, errorCodeParamName)
+		if !ok {
+			continue
+		}
+
+		if len(codes) == 0 && !declaredNoCodesOk && errorCodeParam == nil {
 			// Exclude Cause() methods of error types from having to declare error codes.
 			interfaceType := pass.TypesInfo.TypeOf(typeSpec.Type)
 			if methodIdent.Name == "Cause" && types.Implements(interfaceType, tReeErrorWithCause) {
@@ -104,7 +115,7 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 			// Warn directly about any methods if they return errors, but don't declare error codes in their docs.
 			pass.ReportRangef(method, "interface method %q does not declare any error codes", methodIdent.Name)
 		} else {
-			result.ErrorMethods[methodIdent] = codes
+			result.ErrorMethods[methodIdent] = funcCodes{codes, errorCodeParam}
 		}
 	}
 
@@ -116,8 +127,11 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 func exportInterfaceFacts(pass *analysis.Pass, interfaces []*errorInterfaceWithCodes) {
 	for _, errorInterface := range interfaces {
 		exportErrorInterfaceFact(pass, errorInterface)
-		for methodIdent, codes := range errorInterface.ErrorMethods {
-			exportErrorCodesFact(pass, methodIdent, codes)
+		for methodIdent, funcCodes := range errorInterface.ErrorMethods {
+			if funcCodes.param != nil {
+				exportErrorConstructorFact(pass, methodIdent, funcCodes.param)
+			}
+			exportErrorCodesFact(pass, methodIdent, funcCodes.codes)
 		}
 	}
 }
@@ -130,8 +144,8 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 	}
 
 	methods := make(map[string]CodeSet, len(errorInterface.ErrorMethods))
-	for methodIdent, codes := range errorInterface.ErrorMethods {
-		methods[methodIdent.Name] = codes
+	for methodIdent, funcCodes := range errorInterface.ErrorMethods {
+		methods[methodIdent.Name] = funcCodes.codes
 	}
 
 	fact := ErrorInterface{methods}

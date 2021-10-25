@@ -96,7 +96,7 @@ func MissingParam(code string) error { /*
 func WrongParam(code1, code2 string) error { /*
 		want
 			WrongParam:"ErrorConstructor: {CodeParamPosition:1}"
-			WrongParam:"ErrorCodes:  Param:{Position:1}"
+			WrongParam:"ErrorCodes:"
 			`function "WrongParam" has a mismatch of declared and actual error codes: missing param: "code1" unused param: "code2"` */
 	_ = code2
 	return &Error{code1}
