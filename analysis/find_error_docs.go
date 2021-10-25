@@ -40,6 +40,7 @@ type findErrorDocsSM struct {
 	seen      CodeSet
 	state     state
 	noCodesOk bool
+	param     string
 }
 
 // run runs the state machine to find error codes in the provided doc string.
@@ -47,20 +48,21 @@ type findErrorDocsSM struct {
 // The method returns a set of found codes,
 // a bool which is true if the function declared "Errors: none",
 // an error in case of invalid doc strings or nil otherwise.
-func (sm findErrorDocsSM) run(doc string) (CodeSet, bool, error) {
+func (sm findErrorDocsSM) run(doc string) (CodeSet, string, bool, error) {
 	sm.seen = CodeSet{}
 	sm.state = stateInit{}
 	sm.noCodesOk = false
+	sm.param = ""
 
 	for _, line := range strings.Split(doc, "\n") {
 		line := strings.TrimSpace(line)
 		err := sm.state.step(&sm, line)
 		if err != nil {
-			return nil, false, err
+			return nil, "", false, err
 		}
 	}
 
-	return sm.seen, sm.noCodesOk, nil
+	return sm.seen, sm.param, sm.noCodesOk, nil
 }
 
 type (
@@ -108,6 +110,20 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 		code = strings.TrimSpace(code)
 		if code == "" {
 			return fmt.Errorf("an error code can't be purely whitespace")
+		}
+
+		if strings.HasPrefix(code, "param:") {
+			param := code[len("param:"):]
+			param = strings.TrimSpace(param)
+			switch {
+			case param == "":
+				return fmt.Errorf("an error code parameter can't be purely whitespace")
+			case sm.param != "":
+				return fmt.Errorf("cannot define more than one error code parameter (found multiple 'param:' inidicators)")
+			default:
+				sm.param = param
+				return nil
+			}
 		}
 
 		if !isErrorCodeValid(code) {

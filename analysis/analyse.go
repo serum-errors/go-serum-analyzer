@@ -28,14 +28,26 @@ var VerifyAnalyzer = &analysis.Analyzer{
 	Run:      runVerify,
 	FactTypes: []analysis.Fact{
 		new(ErrorCodes),
+		new(ErrorConstructor),
 		new(ErrorType),
 		new(ErrorInterface),
 	},
 }
 
-type ErrorCodes struct {
-	Codes CodeSet
-}
+type (
+	ErrorCodes struct {
+		Codes CodeSet
+	}
+
+	// ErrorConstructor is a fact that is used to tag functions that are error constructors,
+	// meaning they take an error code parameter (string) and return an error.
+	//
+	// For example a constructor function "NewError(code, message string) error { return &Error{code, message} }"
+	// gets an ErrorConstructor{CodeParamPosition: 0} fact.
+	ErrorConstructor struct {
+		CodeParamPosition int
+	}
+)
 
 func (*ErrorCodes) AFact() {}
 
@@ -45,6 +57,12 @@ func (e *ErrorCodes) String() string {
 	return fmt.Sprintf("ErrorCodes: %v", strings.Join(codes, " "))
 }
 
+func (*ErrorConstructor) AFact() {}
+
+func (e *ErrorConstructor) String() string {
+	return fmt.Sprintf("ErrorConstructor: {CodeParamPosition:%d}", e.CodeParamPosition)
+}
+
 type (
 	context struct {
 		pass   *analysis.Pass
@@ -52,7 +70,17 @@ type (
 		scc    scc.State
 	}
 
-	funcCodes map[*ast.FuncDecl]CodeSet
+	funcCodesMap map[*ast.FuncDecl]funcCodes
+
+	funcCodes struct {
+		codes CodeSet
+		param *funcCodeParam
+	}
+
+	funcCodeParam struct {
+		ident    *ast.Ident
+		position int
+	}
 
 	// funcDefinition is used to hold either an ast.FuncDecl or ast.FuncLit but not both at the same time.
 	funcDefinition struct {
@@ -144,13 +172,13 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 			foundCodes = findErrorCodesInFunc(c, &funcDefinition{funcDecl, nil})
 		}
 
-		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claimedCodes)
+		reportIfCodesDoNotMatch(pass, funcDecl, funcCodes{foundCodes, nil}, claimedCodes)
 	}
 
 	// Export all claimed error codes as facts.
 	// Missing error code docs or unused ones will get reported in the respective functions,
 	// but on caller site only the documented behaviour matters.
-	exportFunctionFacts(pass, funcClaims)
+	exportErrorCodeFacts(pass, funcClaims)
 
 	findConversionsToErrorReturningInterfaces(c)
 
@@ -173,9 +201,9 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 }, nil).Complete()
 
 // findErrorDocs looks at the given comments and tries to find error code declarations.
-func findErrorDocs(comments *ast.CommentGroup) (CodeSet, bool, error) {
+func findErrorDocs(comments *ast.CommentGroup) (CodeSet, string, bool, error) {
 	if comments == nil {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	return findErrorDocsSM{}.run(comments.Text())
 }
@@ -229,21 +257,26 @@ func checkFunctionReturnsError(pass *analysis.Pass, funcType *ast.FuncType) bool
 // findClaimedErrorCodes finds the error codes claimed by the given functions,
 // and emits diagnostics if a function does not claim error codes or
 // if the format of the docstring does not match the expected format.
-func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) funcCodes {
-	result := funcCodes{}
+func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) funcCodesMap {
+	result := funcCodesMap{}
 	for _, funcDecl := range funcsToAnalyse {
-		codes, declaredNoCodesOk, err := findErrorDocs(funcDecl.Doc)
+		codes, errorCodeParamName, declaredNoCodesOk, err := findErrorDocs(funcDecl.Doc)
 		if err != nil {
 			pass.Reportf(funcDecl.Pos(), "function %q has odd docstring: %s", funcDecl.Name.Name, err)
 			continue
 		}
 
-		if len(codes) == 0 && !declaredNoCodesOk {
+		errorCodeParam, ok := findErrorCodeParamIdent(pass, funcDecl, errorCodeParamName)
+		if !ok {
+			continue
+		}
+
+		if len(codes) == 0 && !declaredNoCodesOk && errorCodeParam == nil {
 			// Exclude Cause() methods of error types from having to declare error codes.
 			// If a Cause() method declares error codes, treat it like every other method.
 			if isMethod(funcDecl) {
 				receiverType := pass.TypesInfo.TypeOf(funcDecl.Recv.List[0].Type)
-				if types.Implements(receiverType, tReeErrorWithCause) {
+				if types.Implements(receiverType, tReeErrorWithCause) && funcDecl.Name.Name == "Cause" {
 					continue
 				}
 			}
@@ -254,17 +287,46 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
 			}
 		} else {
-			result[funcDecl] = codes
+			result[funcDecl] = funcCodes{codes, errorCodeParam}
 		}
 	}
 
 	return result
 }
 
-// exportFunctionFacts exports all codes for each function in the given map as facts.
-func exportFunctionFacts(pass *analysis.Pass, codes funcCodes) {
-	for funcDecl, codeSet := range codes {
-		exportErrorCodesFact(pass, funcDecl.Name, codeSet)
+// findErrorCodeParamIdent tries to finds the error code param identifier in the parameter list
+// of the given function using the name of the parameter.
+func findErrorCodeParamIdent(pass *analysis.Pass, funcDecl *ast.FuncDecl, errorCodeParamName string) (*funcCodeParam, bool) {
+	if errorCodeParamName == "" {
+		return nil, true
+	}
+
+	position := 0
+	for _, param := range funcDecl.Type.Params.List { // Type and Params are never nil
+		for _, paramIdent := range param.Names {
+			if paramIdent.Name != errorCodeParamName {
+				position++
+				continue
+			}
+
+			basic, ok := pass.TypesInfo.TypeOf(paramIdent).(*types.Basic)
+			if !ok || basic.Name() != "string" {
+				pass.ReportRangef(paramIdent, "error code parameter %q has to be of type string", errorCodeParamName)
+				return nil, false
+			}
+
+			return &funcCodeParam{paramIdent, position}, true
+		}
+	}
+
+	pass.Reportf(funcDecl.Pos(), "declared error code parameter %q could not be found in parameter list", errorCodeParamName)
+	return nil, false
+}
+
+// exportErrorCodeFacts exports all codes for each function in the given map as facts.
+func exportErrorCodeFacts(pass *analysis.Pass, codes funcCodesMap) {
+	for funcDecl, funcCodes := range codes {
+		exportErrorCodesFact(pass, funcDecl.Name, funcCodes.codes)
 	}
 }
 
@@ -321,9 +383,9 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 }
 
 // reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
-func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes CodeSet, claimedCodes CodeSet) {
-	missingCodes := Difference(foundCodes, claimedCodes).Slice()
-	unusedCodes := Difference(claimedCodes, foundCodes).Slice()
+func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes funcCodes, claimedCodes funcCodes) {
+	missingCodes := Difference(foundCodes.codes, claimedCodes.codes).Slice()
+	unusedCodes := Difference(claimedCodes.codes, foundCodes.codes).Slice()
 	var errorMessages []string
 	if len(missingCodes) != 0 {
 		sort.Strings(missingCodes)
@@ -332,6 +394,14 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 	if len(unusedCodes) != 0 {
 		sort.Strings(unusedCodes)
 		errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
+	}
+
+	if foundCodes.param != nil && (claimedCodes.param == nil || claimedCodes.param.ident.Obj != foundCodes.param.ident.Obj) {
+		errorMessages = append(errorMessages, fmt.Sprintf("missing param: %q", foundCodes.param.ident.Name))
+	}
+
+	if claimedCodes.param != nil && (foundCodes.param == nil || claimedCodes.param.ident.Obj != foundCodes.param.ident.Obj) {
+		errorMessages = append(errorMessages, fmt.Sprintf("unused param: %q", claimedCodes.param.ident.Name))
 	}
 
 	if len(errorMessages) != 0 {

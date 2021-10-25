@@ -88,7 +88,7 @@ func checkIfErrorReturningInterface(pass *analysis.Pass, spec ast.Spec) *errorIn
 		}
 
 		methodIdent := method.Names[0]
-		codes, declaredNoCodesOk, err := findErrorDocs(method.Doc)
+		codes, _, declaredNoCodesOk, err := findErrorDocs(method.Doc) // TODO
 		if err != nil {
 			pass.ReportRangef(method, "interface method %q has odd docstring: %s", methodIdent.Name, err)
 			continue

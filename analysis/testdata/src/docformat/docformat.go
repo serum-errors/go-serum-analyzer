@@ -5,9 +5,9 @@ package docformat
 //
 // Errors:
 //
-//    - hello-error       -- is always returned.
+//    - hello-error       -- is always returned
 // The following error codes should not occur:
-//    - hello-unreachable -- should never be returned.
+//    - hello-unreachable -- should never be returned
 //    - hello-unreachable --
 //
 // After a blank line comments in any format may follow.
@@ -17,6 +17,19 @@ func Correct() error { // want Correct:"ErrorCodes: hello-error hello-unreachabl
 		return &Error{"hello-unreachable"}
 	}
 	return &Error{"hello-error"}
+}
+
+// NewError is a constructor for Error using the code parameter.
+//
+// Errors:
+//
+//    - param: code   -- is used if the provided flag is true
+//    - unknown-error -- is used otherwise
+func NewError(code string, flag bool) error { // want NewError:"ErrorConstructor: {CodeParamPosition:0}" NewError:"ErrorCodes: unknown-error"
+	if flag {
+		return &Error{code}
+	}
+	return &Error{"unknown-error"}
 }
 
 // NoError is a demo function.
@@ -185,6 +198,35 @@ func InvalidCodeFormat4() error { // want `function "InvalidCodeFormat4" has odd
 //
 // - invalid error -- containing invalid char (space)
 func InvalidCodeFormat5() error { // want `function "InvalidCodeFormat5" has odd docstring: declared error code has invalid format: should match .*`
+	return nil
+}
+
+// Errors:
+//
+//    - param: code1 --
+//    - param: code2 --
+func InvalidConstructor1(code1, code2 string) error { // want `function "InvalidConstructor1" has odd docstring: cannot define more than one error code parameter \(found multiple 'param:' inidicators)`
+	return nil
+}
+
+// Errors:
+//
+//    - param:    --
+func InvalidConstructor2(code1, code2 string) error { // want `function "InvalidConstructor2" has odd docstring: an error code parameter can't be purely whitespace`
+	return nil
+}
+
+// Errors:
+//
+//    - param: code -- does not actually exist
+func InvalidConstructor3(_ string) error { // want `declared error code parameter "code" could not be found in parameter list`
+	return nil
+}
+
+// Errors:
+//
+//    - param: code -- code with invalid type
+func InvalidErrorCodeParamType(code int) error { // want `error code parameter "code" has to be of type string`
 	return nil
 }
 
