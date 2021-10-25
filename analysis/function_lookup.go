@@ -16,7 +16,7 @@ type funcLookup struct {
 	functions  map[string]*ast.FuncDecl   // Mapping Function Names to Declarations
 	methods    map[string][]*ast.FuncDecl // Mapping Method Names to Declarations (Multiple Possible per Name)
 	methodSet  typeutil.MethodSetCache
-	foundCodes map[funcDeclOrLit]CodeSet // Mapping Function Declarations to cached error codes and affectors
+	foundCodes map[funcDeclOrLit]CodeSet // Mapping Function Declarations and Function Literals to cached error codes
 }
 
 func newFuncLookup() *funcLookup {

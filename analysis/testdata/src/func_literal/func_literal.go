@@ -159,7 +159,7 @@ func returningLambda() func() *Error {
 func OutOfBounds() *Error { // want OutOfBounds:"ErrorCodes:"
 	switch {
 	case true:
-		return &Error{func() string { return "other-error" }()} // want "error code field has to be instantiated by constant value"
+		return &Error{func() string { return "other-error" }()} // want "error code has to be constant value or error code parameter"
 	case true:
 		return func() func() *Error { // want "invalid error source: definition of the unnamed function could not be found"
 			return func() *Error {

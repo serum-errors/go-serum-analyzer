@@ -62,13 +62,13 @@ func AssignInvalidExpression(input string) error { // want AssignInvalidExpressi
 	err := &Error{"some-error"}
 	switch {
 	case true:
-		err.TheCode = input // want "error code field has to be assigned a constant value"
+		err.TheCode = input // want `require an error code parameter declaration to use "input" as an error code`
 	case true:
-		err.TheCode = returnCode() // want "error code field has to be assigned a constant value"
+		err.TheCode = returnCode() // want "error code has to be constant value or error code parameter"
 	case true:
-		_, err.TheCode = returnTwoCodes() // want "error code field has to be assigned a constant value"
+		_, err.TheCode = returnTwoCodes() // want "error code has to be constant value or error code parameter"
 	case true:
-		err.TheCode, err.TheCode = returnTwoCodes() // want "error code field has to be assigned a constant value" "error code field has to be assigned a constant value"
+		err.TheCode, err.TheCode = returnTwoCodes() // want "error code has to be constant value or error code parameter" "error code has to be constant value or error code parameter"
 	}
 	return err
 }

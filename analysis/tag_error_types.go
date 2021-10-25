@@ -308,7 +308,7 @@ func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorTyp
 				return true
 			}
 
-			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, errorType, receiver, assignment)
+			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, &funcDefinition{method, nil}, errorType, receiver, assignment)
 			assignedCodes = Union(assignedCodes, newCodes)
 
 			return false

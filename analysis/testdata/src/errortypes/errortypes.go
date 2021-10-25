@@ -26,7 +26,8 @@ package errortypes
 //    - combined-2-error --
 //    - combined-3-error --
 //    - string-error     --
-func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-error combined-2-error combined-3-error field-1-error field-2-error field-3-error field-4-error field-5-error field-6-error multiple-1-error multiple-2-error multiple-3-error promoted-1-error promoted-2-error promoted-3-error some-2-error some-3-error some-4-error some-error string-error value-1-error value-2-error"
+func AllErrors() error { // want AllErrors:"ErrorCodes: combined-1-error combined-2-error combined-3-error field-1-error field-2-error field-3-error field-4-error field-5-error field-6-error multiple-1-error multiple-2-error multiple-3-error promoted-1-error promoted-2-error promoted-3-error some-2-error some-3-error some-4-error some-error string-error value-1-error value-2-error"
+	var someVariable string
 	switch {
 	case true:
 		return &ConstantError{}
@@ -59,9 +60,9 @@ func AllErrors(param1 string) error { // want AllErrors:"ErrorCodes: combined-1-
 	case true:
 		return &FieldError2{field3: "unrelated", field2: "stuff", field1: "field-6-error"} // more advanced test for named constructor
 	case true:
-		return &FieldError{param1} // want "error code field has to be instantiated by constant value"
+		return &FieldError{someVariable} // want "error code has to be constant value or error code parameter"
 	case true:
-		return &FieldError{} // want "error code field has to be instantiated by constant value"
+		return &FieldError{} // want "could not find initialiser for error code field in contructor expression"
 	case true:
 		return &FieldError{"badformat-"} // want "error code has invalid format: should match .*"
 	case true:
@@ -231,7 +232,7 @@ func (e *ModifyingError1) Code() string {
 		e.code = "replaced-1-error"
 	}
 	if e.flag2 {
-		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+		e.code = e.code + "-error" // want "error code has to be constant value or error code parameter"
 	}
 	return e.code
 }
@@ -241,7 +242,7 @@ func (e *ModifyingError1) Error() string {
 		e.code = "replaced-2-error"
 	}
 	if e.flag2 {
-		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+		e.code = e.code + "-error" // want "error code has to be constant value or error code parameter"
 	}
 	return "ModifyingError1"
 }
@@ -251,7 +252,7 @@ func (e *ModifyingError1) OtherMethod() string {
 		e.code = "replaced-3-error"
 	}
 	if e.flag2 {
-		e.code = e.code + "-error" // want "error code field has to be assigned a constant value"
+		e.code = e.code + "-error" // want "error code has to be constant value or error code parameter"
 	}
 	return "ModifyingError1"
 }

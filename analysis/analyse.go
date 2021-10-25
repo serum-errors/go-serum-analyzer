@@ -167,13 +167,13 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// Anything else is trouble.
 	scc := scc.StartSCC() // SCC for handling of recursive functions
 	c := &context{pass, lookup, scc}
-	for funcDecl, claimedCodes := range funcClaims {
+	for funcDecl, claims := range funcClaims {
 		foundCodes, ok := lookup.foundCodes[funcDecl]
 		if !ok {
 			foundCodes = findErrorCodesInFunc(c, &funcDefinition{funcDecl, nil})
 		}
 
-		reportIfCodesDoNotMatch(pass, funcDecl, funcCodes{foundCodes, nil}, claimedCodes)
+		reportIfCodesDoNotMatch(pass, funcDecl, foundCodes, claims.codes)
 	}
 
 	// Export all claimed error codes as facts.
@@ -398,11 +398,9 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 		}
 
 		if errorType.Field != nil {
-			code, err := extractFieldErrorCodes(pass, affector, function, errorType)
-			if err == nil {
+			code, ok := extractFieldErrorCode(pass, affector, function, errorType)
+			if ok {
 				result.Add(code)
-			} else {
-				pass.ReportRangef(affector, "%v", err)
 			}
 		}
 	}
@@ -411,9 +409,9 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 }
 
 // reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
-func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes funcCodes, claimedCodes funcCodes) {
-	missingCodes := Difference(foundCodes.codes, claimedCodes.codes).Slice()
-	unusedCodes := Difference(claimedCodes.codes, foundCodes.codes).Slice()
+func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes CodeSet, claimedCodes CodeSet) {
+	missingCodes := Difference(foundCodes, claimedCodes).Slice()
+	unusedCodes := Difference(claimedCodes, foundCodes).Slice()
 	var errorMessages []string
 	if len(missingCodes) != 0 {
 		sort.Strings(missingCodes)
@@ -422,14 +420,6 @@ func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundC
 	if len(unusedCodes) != 0 {
 		sort.Strings(unusedCodes)
 		errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
-	}
-
-	if foundCodes.param != nil && (claimedCodes.param == nil || claimedCodes.param.ident.Obj != foundCodes.param.ident.Obj) {
-		errorMessages = append(errorMessages, fmt.Sprintf("missing param: %q", foundCodes.param.ident.Name))
-	}
-
-	if claimedCodes.param != nil && (foundCodes.param == nil || claimedCodes.param.ident.Obj != foundCodes.param.ident.Obj) {
-		errorMessages = append(errorMessages, fmt.Sprintf("unused param: %q", claimedCodes.param.ident.Name))
 	}
 
 	if len(errorMessages) != 0 {
@@ -817,7 +807,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 		}
 
 		// Adding codes that originate from assignments to the error code field.
-		newCodes := findCodesAssignedToErrorCodeField(pass, lookup, nil, ident, assignment)
+		newCodes := findCodesAssignedToErrorCodeField(pass, lookup, within, nil, ident, assignment)
 		result = Union(result, newCodes)
 
 		return true
@@ -845,7 +835,7 @@ func isIdentOriginOutsideFunctionScope(function *funcDefinition, ident *ast.Iden
 
 // findCodesAssignedToErrorCodeField searches through the given assignment and returns every constant code assigned to the error code field.
 // For invalid assignments to the error code field, diagnostics are emitted.
-func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, errorType *ErrorType, errorIdent *ast.Ident, assignment *ast.AssignStmt) CodeSet {
+func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, function *funcDefinition, errorType *ErrorType, errorIdent *ast.Ident, assignment *ast.AssignStmt) CodeSet {
 	result := Set()
 
 	for i, lhsEntry := range assignment.Lhs {
@@ -880,23 +870,14 @@ func findCodesAssignedToErrorCodeField(pass *analysis.Pass, lookup *funcLookup, 
 		}
 
 		if len(assignment.Lhs) != len(assignment.Rhs) {
-			pass.ReportRangef(assignment.Rhs[0], "error code field has to be assigned a constant value")
+			pass.ReportRangef(assignment.Rhs[0], "error code has to be constant value or error code parameter")
 			continue
 		}
 
-		value := pass.TypesInfo.Types[assignment.Rhs[i]].Value
-		if value == nil {
-			pass.ReportRangef(assignment.Rhs[i], "error code field has to be assigned a constant value")
-			continue
+		code, ok := extractErrorCodeFromStringExpression(pass, function, assignment.Rhs[i])
+		if ok {
+			result.Add(code)
 		}
-
-		code, err := getErrorCodeFromConstant(value)
-		if err != nil {
-			pass.ReportRangef(assignment.Rhs[i], "%v", err)
-			continue
-		}
-
-		result.Add(code)
 	}
 
 	return result
@@ -910,15 +891,26 @@ func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // 
 	return types.Implements(typ, tReeError) || types.Implements(types.NewPointer(typ), tReeError)
 }
 
-// extractFieldErrorCodes finds a possible error code from the given constructor expression.
+// extractFieldErrorCode finds a possible error code from the given constructor expression.
 //
 // The expression evaluates to an error of the given error type, which has its errorType.Field set to a value (not nil).
-func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, function *funcDefinition, errorType *ErrorType) (string, error) {
+func extractFieldErrorCode(pass *analysis.Pass, expr ast.Expr, function *funcDefinition, errorType *ErrorType) (string, bool) {
 	if errorType == nil || errorType.Field == nil {
-		return "", fmt.Errorf("cannot extract field error code without field definition")
+		panic("cannot extract field error code without field definition")
 	}
 
-	switch expr := astutil.Unparen(expr).(type) {
+	fieldExpr := findFieldInitExpression(expr, errorType.Field)
+	if fieldExpr == nil {
+		pass.ReportRangef(expr, "could not find initialiser for error code field in contructor expression")
+		return "", false
+	}
+
+	return extractErrorCodeFromStringExpression(pass, function, fieldExpr)
+}
+
+// findFieldInitExpression searches the expression that initialises the given field in the given constructor expression.
+func findFieldInitExpression(constructExpr ast.Expr, field *ErrorCodeField) ast.Expr {
+	switch expr := astutil.Unparen(constructExpr).(type) {
 	case *ast.CompositeLit:
 		// Key-based composite literal:
 		// Use the field name to find the error code.
@@ -934,32 +926,26 @@ func extractFieldErrorCodes(pass *analysis.Pass, expr ast.Expr, function *funcDe
 				break
 			}
 
-			if errorType.Field.Name == ident.Name {
-				info, ok := pass.TypesInfo.Types[element.Value]
-				if ok && info.Value != nil {
-					return getErrorCodeFromConstant(info.Value)
-				}
+			if field.Name == ident.Name {
+				return element.Value
 			}
 		}
 
 		// Position-based composite literal:
 		// Use the field position to find the error code.
-		pos := errorType.Field.Position
+		pos := field.Position
 		if pos < len(expr.Elts) {
-			info, ok := pass.TypesInfo.Types[expr.Elts[pos]]
-			if ok && info.Value != nil {
-				return getErrorCodeFromConstant(info.Value)
-			}
+			return expr.Elts[pos]
 		}
 	case *ast.UnaryExpr:
 		if expr.Op == token.AND {
-			return extractFieldErrorCodes(pass, expr.X, function, errorType)
+			return findFieldInitExpression(expr.X, field)
 		}
 	default:
-		logf("extractErrorCodes did not yet handle: %#v\n", expr)
+		logf("findFieldInitExpression did not yet handle: %#v\n", expr)
 	}
 
-	return "", fmt.Errorf("error code field has to be instantiated by constant value")
+	return nil
 }
 
 func getErrorCodeFromConstant(value constant.Value) (string, error) {
@@ -981,4 +967,85 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	}
 
 	return result, nil
+}
+
+// extractErrorCodeFromStringExpression tries to extract the error code from a given string expression.
+func extractErrorCodeFromStringExpression(pass *analysis.Pass, function *funcDefinition, codeExpr ast.Expr) (string, bool) {
+	info, ok := pass.TypesInfo.Types[codeExpr]
+	if ok && info.Value != nil {
+		code, err := getErrorCodeFromConstant(info.Value)
+		if err != nil {
+			pass.ReportRangef(codeExpr, "%v", err)
+		}
+		return code, err == nil
+	}
+
+	// function might be an error constructor and codeExpr the error code parameter.
+	fieldExprIdent, ok := astutil.Unparen(codeExpr).(*ast.Ident)
+	paramPosition := -1
+	if ok {
+		paramPosition = getParamPosition(function.Type(), fieldExprIdent)
+	}
+
+	if paramPosition >= 0 {
+		checkIfExprIsErrorCodeParam(pass, function, &funcCodeParam{fieldExprIdent, paramPosition})
+	} else {
+		pass.ReportRangef(codeExpr, "error code has to be constant value or error code parameter")
+	}
+
+	return "", false
+}
+
+// checkIfExprIsErrorCodeParam checks if the given function is an error constructor and
+// the error code parameter is at the given position in the function definition.
+//
+// If none of these are the case, diagnostics are emitted.
+func checkIfExprIsErrorCodeParam(pass *analysis.Pass, function *funcDefinition, param *funcCodeParam) {
+	ok := func() bool {
+		var fact ErrorConstructor
+		if !importErrorConstructorFact(pass, function, &fact) {
+			return false
+		}
+		return param.position == fact.CodeParamPosition
+	}()
+
+	if !ok {
+		pass.ReportRangef(param.ident, "require an error code parameter declaration to use %q as an error code", param.ident.Name)
+	}
+}
+
+// importErrorConstructorFact tries to import the ErrorConstructor fact for the given function.
+func importErrorConstructorFact(pass *analysis.Pass, function *funcDefinition, fact *ErrorConstructor) bool {
+	if function == nil || function.funcDecl == nil {
+		return false
+	}
+
+	funcName := function.funcDecl.Name
+	funcObj := pass.TypesInfo.ObjectOf(funcName)
+	return pass.ImportObjectFact(funcObj, fact)
+}
+
+// getParamPosition finds the position of the given parameter in the given function.
+// Returns -1 if the parameter was not found.
+func getParamPosition(funcType *ast.FuncType, param *ast.Ident) int {
+	if param == nil || param.Obj == nil {
+		return -1
+	}
+
+	position := 0
+	for _, paramGroup := range funcType.Params.List {
+		if len(paramGroup.Names) == 0 {
+			position++
+			continue
+		}
+
+		for _, paramDefinition := range paramGroup.Names {
+			if paramDefinition.Obj == param.Obj {
+				return position
+			}
+			position++
+		}
+	}
+
+	return -1
 }
