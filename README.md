@@ -7,23 +7,50 @@ it also grows rapidly when programs are networked,
 and a user's action may have triggered errors from any one of a series of dependent programs...
 which may have been written in multiple languages, etc, etc.
 
-`ree` is a short spec for semantic errors which should be reasonably useful
-and reasonable serializable from any program, and parsable and chainable by any program.
-Even across languages.
+`ree` is:
+1. a short language-agnostic spec for error tags -- and recommendations about how to compose them.
+2. a slightly bigger (but still short) language-agnostic spec for error serialization which should be reasonably useful from any program, and parsable and chainable by any program.
+3. a static analysis tool, for golang, to support you in writing code that follows the `ree` conventions.
 
 This repo is concerned with golang code, and golang tooling,
 but the concepts and the error serialization form are language agnostic.
 
 
-Routable Errors
----------------
+Status
+------
+
+This repo contains both a spec about error values and their serializablity,
+and a static analysis tool you can use to make sure your program propagates error values,
+together with their "codes" (as described below by the spec) correctly.
+
+Both the spec and the static analysis tool are in **beta**.
+You can use them!  Please do!
+The authors are beginning to dogfood them too.
+
+See [README_recommendedUsage.md](README_recommendedUsage.md) for more information
+on how we suggest getting started.
+
+
+Tagged Errors: a Proposal
+-------------------------
 
 The design is derived from a few concepts:
 
 - 0. Errors are Values.
-- 1. It is important to be able to handle errors programmatically, and exhaustively: for this we will need errors to have some kind of "code".
+- 1. It is important to be able to handle errors programmatically, and exhaustively: for this we will need errors to have some kind of "code" or "tag".
 - 2. It is important for errors to be serializable, and deserializable.  For this reason, we will specify a minimal but standard structure.
 - 3. It is important for the error "code" to be textual, so that it can be serialized, and so that programmers can make them rich and unique (as opposed to ints, which would be prone to colision).
+
+This is all a fancy way of saying errors should have a string constant that says what kind of error they are.
+
+If you're buying in so far, let's also continue with a few more design concepts about how we should serialize errors.
+
+
+Serializable Rich Errors: a Proposal
+-------------------------------------
+
+Continuing the list above:
+
 - 4. It is important for errors to describe themselves in a human-readable way: they should be able to store a freetext message that's reasonable prose to show to a user.
 - 5. It is useful for errors to be able to attach details: key-value freetext pairs are sufficient for this.
 - 6. It is too much to expect that string templating will be available in the same way in every language, so message text is free to repeat parts of the details entries.  (The message is for humans; the details entries are for machines.)
@@ -198,9 +225,12 @@ Analysis tools in Golang
 
 See the `analysis` folder, which contains a distinct go module, and tooling.
 
-(This is in early development and not yet usable.)
+This tool will perform static analysis on golang code,
+and verify that errors follow the ree convention,
+that functions document which ree error codes they can return,
+and that those documents about error codes are truthful.
 
-In brief, this tooling will:
+More mechanically speaking:
 
 1. Look for functions which have a comment block which describes error codes;
 2. For such functions, statically analyze them (and any other functions they call) to see where data in errors returned actually originates from;
@@ -209,13 +239,24 @@ In brief, this tooling will:
 
 (The model used is one of simple tainting, but this is sufficient to reason about code that is reasonably well-structured.)
 
-This tooling should faciliate a conversation between the programmer and the analyzer:
+This tooling should faciliate a conversation between the programmer and the analysis tool:
 the programmer writes a claim in their function docs,
 and then the analyzer checks it.
 If the programmer fails to describe any errors that the code actually does return,
 the analyzer will prompt them to fix this.
 If the programmer finds that they're having to document too many error codes,
 then they will be encouraged to refactor their code until the error handling becomes reasonable.
+
+
+The code in this package
+------------------------
+
+_You can actually ignore it._
+
+The code in this package implements the ree conventions.
+
+But it's not special.  You could write similar code in your own repo,
+and the ree analyzer tool will treat it exactly the same way.
 
 
 License
