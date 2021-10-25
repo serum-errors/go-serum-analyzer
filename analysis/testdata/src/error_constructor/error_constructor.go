@@ -18,7 +18,7 @@ func NewError(code string, flag bool) error { // want NewError:"ErrorConstructor
 // Errors:
 //
 //    - param: code --
-func NewError2(code string) error { // want NewError:"ErrorConstructor: {CodeParamPosition:0}" NewError:"ErrorCodes:"
+func NewError2(code string) error { // want NewError2:"ErrorConstructor: {CodeParamPosition:0}" NewError2:"ErrorCodes:"
 	return &Error{code}
 }
 
@@ -71,7 +71,7 @@ func MismatchedCodesAndParams(codeUnused, codeMissing string) error { /*
 //
 //    - param: code --
 //    - some-error  --
-func CorrectFieldAssign(code string, flag bool) error { // want InvalidFieldAssign:"ErrorConstructor: {ErrorCodeParam:0}" InvalidFieldAssign:"ErrorCodes: some-error"
+func CorrectFieldAssign(code string, flag bool) error { // want CorrectFieldAssign:"ErrorConstructor: {CodeParamPosition:0}" CorrectFieldAssign:"ErrorCodes: some-error"
 	err := &Error{"some-error"}
 	if flag {
 		err.TheCode = code
@@ -88,6 +88,50 @@ func InvalidFieldAssign(code string, flag bool) error { // want InvalidFieldAssi
 		err.TheCode = code // want `require an error code parameter declaration to use "code" as an error code`
 	}
 	return err
+}
+
+// Errors:
+//
+//    - param-error   --
+//    - unknown-error --
+func CallConstructor() error { // want CallConstructor:"ErrorCodes: param-error unknown-error"
+	return NewError("param-error", false)
+}
+
+// Errors:
+//
+//    - param: code   --
+//    - unknown-error --
+func CallConstructorFromConstructor(code string) error { // want CallConstructorFromConstructor:"ErrorConstructor: {CodeParamPosition:0}" CallConstructorFromConstructor:"ErrorCodes: unknown-error"
+	return NewError(code, false)
+}
+
+// Errors:
+//
+//    - param: code --
+//    - param-error --
+func RecursiveConstructor(code string) error { // want RecursiveConstructor:"ErrorConstructor: {CodeParamPosition:0}" RecursiveConstructor:"ErrorCodes: param-error"
+	if false {
+		return RecursiveConstructor(code)
+	}
+	return NewError2("param-error")
+}
+
+// Errors: none
+func InvalidCallConstructor() error { // want InvalidCallConstructor:"ErrorCodes:"
+	var someCode string = "some-error"
+	return NewError2(someCode) // want `error code has to be constant value or error code parameter`
+}
+
+// Errors: none
+func InvalidCallConstructor2(someCode string) error { // want InvalidCallConstructor2:"ErrorCodes:"
+	return NewError2(someCode) // want `require an error code parameter declaration to use "someCode" as an error code`
+}
+
+// Errors: none
+func InvalidCallConstructor3() error { // want InvalidCallConstructor3:"ErrorCodes:"
+	var postFix string = "-error"
+	return NewError2("another-" + postFix) // want `error code has to be constant value or error code parameter`
 }
 
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
