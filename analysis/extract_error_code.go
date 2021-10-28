@@ -107,7 +107,7 @@ func extractErrorCodeFromConstructorCall(pass *analysis.Pass, startingFunc *func
 	}
 
 	if callExpr == nil {
-		pass.ReportRangef(reportRange, "TODO")
+		pass.ReportRangef(reportRange, "unsupported use of error constructor %q", callee.Name())
 		return "", false
 	}
 

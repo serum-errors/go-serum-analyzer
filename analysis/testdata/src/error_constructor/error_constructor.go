@@ -134,6 +134,30 @@ func InvalidCallConstructor3() error { // want InvalidCallConstructor3:"ErrorCod
 	return NewError2("another-" + postFix) // want `error code has to be constant value or error code parameter`
 }
 
+// Errors:
+//
+//    - param: code --
+func InvalidUseOfCodeParam(code string) error { // want InvalidUseOfCodeParam:"ErrorConstructor: {CodeParamPosition:0}" InvalidUseOfCodeParam:"ErrorCodes:"
+	return func() error {
+		return &Error{code} // want "error code has to be constant value or error code parameter"
+	}()
+}
+
+// Errors:
+//
+//    - param: code --
+func InvalidUseOfCodeParam2(code string) error { // want InvalidUseOfCodeParam2:"ErrorConstructor: {CodeParamPosition:0}" InvalidUseOfCodeParam2:"ErrorCodes:"
+	lambda := NewError2 // want `unsupported use of error constructor "NewError2"`
+	return lambda(code)
+}
+
+type ConstructorInterface interface {
+	// Errors:
+	//
+	//    - param: code --
+	NewError(code string) *Error // want "declaration of error constructors in interfaces is currently not supported"
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
