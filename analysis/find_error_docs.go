@@ -25,6 +25,8 @@ type state interface {
 //       and we'll consider it an error if the rest of the pattern doesn't follow.
 //     - the capture group can be stripped for whitespace again. (perhaps the author wanted to align things.)
 //     - the error code has to be valid, which means it has to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$"
+//   - for error constructors lines like "^- param: (.*) --" are allowed.
+//     - the captured group has to be a parameter of type string
 //   - this may repeat. if lines do not start that that pattern, they are skipped.
 //      - note that the same code may appear multiple times. this is acceptable, and should be deduplicated.
 //   - when there's another fully blank line, the parse is ended.
