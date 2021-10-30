@@ -11,11 +11,11 @@ How to run the analyser as stand-alone tool:
 * Change Directory to Target Project: `cd <target-path>`
 * Execute Analyser: `reeverify <package>`
 
-## Examples
+## About Examples
 
 All examples can be found under [testdata/src/examples/](testdata/src/examples/) and they are executed as part of the test suite when executing `go test` inside the current folder.
 
-## Error Type in Examples
+### Error Type in Examples
 
 The following type will be used in most of the examples:
 
@@ -28,9 +28,9 @@ func (e *Error) Error() string { return e.TheCode }
 func (e *Error) Code() string  { return e.TheCode }
 ```
 
-`*Error` implements the `error` interface and also is a ree error because `interface { Code() string }` is implemented. Those two conditions are the only ones needed to be considered by the error code analysis.
+`*Error` implements the `error` interface and also is a ree error because `interface { Code() string }` is implemented. Those two conditions are the only ones needed to be considered a ree error by the error code analysis.
 
-For more examples of possible or invalid error types see: [testdata/src/errortypes/](testdata/src/errortypes/)
+More detail about error types can be found in a later section of this document.
 
 ## Declaring and Returning Errors
 
@@ -106,7 +106,7 @@ The analysis tries to find mismatches of declared error codes and actually retur
 * error codes are declared, but never returned
 * error codes are returned, but not declared
 
-The following examples demonstrate that. The first example declares error codes, but doesn't return any of them.
+The following two examples demonstrate that. The first example declares error codes, but doesn't return any of them.
 
 ```go
 // Errors:
@@ -126,7 +126,7 @@ The tool would emit the following output for the example above.
 ...\testdata\src\examples\02_basic_examples.go:37:1: function "AddUnused" has a mismatch of declared and actual error codes: unused codes: [examples-error-invalid-arg examples-error-invalid-collection examples-error-limit-reached]
 ```
 
-The second example returns error codes, but does not declare any of them.
+The second example returns errors, but does not declare any of the returned codes.
 
 ```go
 // Errors: none -- not actually true, but we want to showcasse missing error codes.
@@ -183,6 +183,102 @@ func (c *Collection) AddAlt(item interface{}) error {
     return err
 }
 ```
+
+## Error Types
+
+To be considered a valid ree error a type must implement the following interfaces:
+
+* `error`, which is `interface { Error() string }`
+* `interface { Code() string }`
+
+For the `Error` method, there are no limitations to how it may be implemented. We recommend to follow the style laid out in: [../README.md](../README.md).
+
+The `Code` method is used to get the error code from an error type. For the analysis tool to be able to statically track error codes, the `Code` method has to follow some conventions:
+
+* return a constant string, or
+  * Multiple different constant strings may be returned.
+  * The returned strings have to be error codes of a valid format (i.e. has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`)
+* return a field
+  * If a field is returned multiple times, always the same field has to be returned.
+  * We call this field the **error code field**.
+  * When constructing an error, this field has to be set to a constant string.
+
+There may be a mix of returning the error code field and constatns inside of one `Code` method.
+
+Assignment to error code fields is also restricted to make static analysis possible:
+
+* Assignments inside of any method of the error type can only be constant strings.
+  * Those constants are treated as if they were returned by the `Code` method.
+* All other assignments are prohibited.
+
+### Examples
+
+We have already seen the following simple example, where a single error code field is returned every time:
+
+```go
+type Error struct {
+    TheCode string
+}
+
+func (e *Error) Error() string { return e.TheCode }
+func (e *Error) Code() string  { return e.TheCode }
+```
+
+The next example shows how constant string error codes could be returned:
+
+```go
+type Error2 string
+
+func (e Error2) Error() string { return fmt.Sprintf("%s: %s", e.Code(), e) }
+func (e Error2) Code() string {
+    switch {
+    case e == "":
+        return "examples-error-empty"
+    case strings.HasPrefix(string(e), "peer disconnected"):
+        return "examples-error-disconnect"
+    default:
+        return "examples-error-unknown"
+    }
+}
+```
+
+Whenever `Error2` is returned anywhere, the analysis adds all three error codes as possible outcomes. So a function with the statement `return Error2("error message")` has to declare the error codes: "examples-error-empty", "examples-error-disconnect", and "examples-error-unknown"
+
+As a final example we show how returning fields and constants can be mixxed:
+
+```go
+type Error3 struct {
+    flag bool
+    code string
+}
+
+func (e *Error3) Error() string { return e.code }
+func (e *Error3) Code() string {
+    if e.flag {
+        e.code = "examples-error-flagged"
+    }
+    if e.code == "" {
+        return "examples-error-unknown"
+    }
+    return e.code
+}
+```
+
+Whenever `Error3` is returned anywhere, the analysis adds the two constant error codes and the value assigned to the field as possible outcomes. A function containing the statement `return &Error3{false, "examples-error-not-implemented"}` has to declare the error codes: "examples-error-flagged", "examples-error-unknown", and "examples-error-not-implemented"
+
+For more examples of possible or invalid error types see: [testdata/src/errortypes/](testdata/src/errortypes/)
+
+## Error Code Origins
+
+There are 3 possible origins of error codes that are considered:
+
+1. Type Construction
+2. Function Call
+3. Assignment to Code Field
+
+## Interfaces
+
+## Error Constructors
 
 ## Limitations
 

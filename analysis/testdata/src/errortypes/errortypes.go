@@ -48,6 +48,8 @@ func AllErrors() error { // want AllErrors:"ErrorCodes: combined-1-error combine
 	case true:
 		return &InvalidError2{} // want "expression is not a valid error: error types must return constant error codes or a single field"
 	case true:
+		return &InvalidError3{} // want "expression does not define an error code"
+	case true:
 		return &FieldError{"field-1-error"}
 	case true:
 		return &FieldError2{"field-2-error", "some other", "values"}
@@ -138,6 +140,10 @@ type InvalidError2 struct{ field1, field2 string } // want `type "InvalidError2"
 
 func (e *InvalidError2) Code() string  { return e.field1 + e.field2 } // want `function "Code" should always return a string constant or a single field`
 func (e *InvalidError2) Error() string { return "InvalidError2" }
+
+type InvalidError3 struct{}
+
+func (e *InvalidError3) Error() string { return "InvalidError3" }
 
 type FieldError struct{ field string } // want FieldError:`ErrorType{Field:{Name:"field", Position:0}, Codes:}`
 
