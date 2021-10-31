@@ -123,7 +123,7 @@ func (c *Collection) AddUnused(item interface{}) error {
 The tool would emit the following output for the example above.
 
 ```text
-...\testdata\src\examples\02_basic_examples.go:37:1: function "AddUnused" has a mismatch of declared and actual error codes: unused codes: [examples-error-invalid-arg examples-error-invalid-collection examples-error-limit-reached]
+...\testdata\src\examples\02_basic_examples.go:38:1: function "AddUnused" has a mismatch of declared and actual error codes: unused codes: [examples-error-invalid-arg examples-error-invalid-collection examples-error-limit-reached]
 ```
 
 The second example returns errors, but does not declare any of the returned codes.
@@ -151,7 +151,7 @@ func (c *Collection) AddMissing(item interface{}) error {
 Very similar to the first example, the tool would emit the following message for the second example.
 
 ```text
-...\testdata\src\examples\02_basic_examples.go:45:1: function "AddMissing" has a mismatch of declared and actual error codes: missing codes: [examples-error-invalid-arg examples-error-invalid-collection examples-error-limit-reached]
+...\testdata\src\examples\02_basic_examples.go:46:1: function "AddMissing" has a mismatch of declared and actual error codes: missing codes: [examples-error-invalid-arg examples-error-invalid-collection examples-error-limit-reached]
 ```
 
 ### Alternative Code Styles
@@ -331,6 +331,115 @@ Calls to functions of **other packages** entierly trust the declared error codes
 **Recursive calls** of functions set the error codes of all involved functions to the super set of error codes in those functions. See [testdata/src/recursion/recursion.go](testdata/src/recursion/recursion.go) for some examples.
 
 ## Interfaces
+
+Error codes can be declared for interface methods.
+
+```go
+type Box interface {
+    // Put makes the box store the given value.
+    //
+    // Errors:
+    //
+    //    - examples-error-arg-nil -- if the given value is nil
+    //    - examples-error-invalid -- if the box already holds a value
+    //    - examples-error-unknown -- if an unexpected error occurred
+    Put(value interface{}) error
+
+    // Pop retrieves the value stored in the box and removes it from the box.
+    //
+    // Errors:
+    //
+    //    - examples-error-invalid -- if the box was empty
+    Pop() (interface{}, error)
+}
+```
+
+All interface methods are required to declare error codes, if they return an error.
+
+The format of the declaration and the format of the error code is checked in the same way as for function definitions. (See more under [Error Declaration](#error-declaration))
+
+Calls to interface methods add the declared error codes to the analysis.
+
+The following code snippets contain definitions for `BoxImpl` and `BoxInvalidImpl`, two types, which implement the `Box` interface:
+
+```go
+type BoxImpl struct {
+    value interface{}
+}
+
+// Errors:
+//
+//    - examples-error-arg-nil -- if the given value is nil
+//    - examples-error-invalid -- if the box already holds a value
+func (b *BoxImpl) Put(value interface{}) error {
+    if value == nil {
+        return &Error{"examples-error-arg-nil"}
+    }
+
+    if b == nil || b.value != nil {
+        return &Error{"examples-error-invalid"}
+    }
+
+    b.value = value
+    return nil
+}
+
+// Errors:
+//
+//    - examples-error-invalid -- if the box was empty
+func (b *BoxImpl) Pop() (interface{}, error) {
+    if b == nil || b.value == nil {
+        return nil, &Error{"examples-error-invalid"}
+    }
+
+    b.value = nil
+    return b.value, nil
+}
+```
+
+```go
+type BoxInvalidImpl struct{}
+
+// Errors:
+//
+//    - examples-error-not-implemented --
+func (b *BoxInvalidImpl) Put(value interface{}) error {
+    return &Error{"examples-error-not-implemented"}
+}
+
+// Errors:
+//
+//    - examples-error-not-implemented --
+func (b *BoxInvalidImpl) Pop() (interface{}, error) {
+    return nil, &Error{"examples-error-not-implemented"}
+}
+```
+
+`BoxImpl` is a valid implementation of the `Box` interface.
+
+Implementations are allowed to use fewer error codes than are present in the interface declaration. As shown with the error code "examples-error-unknown", which is not returned by the `Put` method of `BoxImpl`.
+
+### Invalid Interface Implementation
+
+Implementations are not allowed to declare error codes which are not present in the interface declaration. `BoxInvalidImpl` violates this requirement for both methods.
+
+But the analyser does not complain at all about `BoxInvalidImpl`. This is the case, because the analyser doesn't actually know, if `BoxInvalidImpl` was supposed to implement `Box` or not. The analyser handles this case similar to the go compiler and only emits errors if `BoxInvalidImpl` is tried to be used as `Box`.
+
+For example the following scenario:
+
+```go
+func UseBoxInvalidImplAsBox() {
+    var b Box = &BoxInvalidImpl{}
+    b.Put(b)
+}
+```
+
+Here `BoxInvalidImpl` is assigned to a variable of type `Box` and therefore the analyser outputs the following lines:
+
+```text
+...\testdata\src\examples\04_interfaces.go:80:14: cannot use expression as "Box" value: method "Pop" declares the following error codes which were not part of the interface: [examples-error-not-implemented]
+...\testdata\src\examples\04_interfaces.go:80:14: cannot use expression as "Box" value: method "Put" declares the following error codes which were not part of the interface: [examples-error-not-implemented]
+```
 
 ## Error Constructors
 
