@@ -515,8 +515,73 @@ Error constructors are not allowed to modifiy the error code parameter, pass it 
 
 ## Limitations
 
-TODO:
+This section describes limitations in the analyser. That includes:
 
-* Dead branches cannot be detected
-* Error has to be last return
-* Leaking modifiable errors
+* things that cannot be checked, but should be avoided anyways
+* things that are restricted, to make the design and implementation of the analyser simple
+
+### Leaking Modifiable Errors
+
+It is allowed to leak modifieable errors.
+
+For example in the following code, the invalid assignment to the error code would not be found by the analysis tool:
+
+```go
+// Errors:
+//
+//    - examples-error-invalid --
+func CallModifyError() error {
+    err := &Error{"examples-error-invalid"}
+    ModifyError(err)
+    return err
+}
+
+func ModifyError(err *Error) {
+    err.TheCode = "some invalid value"
+}
+```
+
+This is mostly the case to allow clients to pass errors to logging functions and similar. For example, the following could be a desierable scenario:
+
+```go
+err := TryOpen(fileName)
+if err != nil {
+    logger.Fatalf(err, "failed to open file: %q", fileName)
+}
+```
+
+### Dead Branches Not Detected
+
+The analysis does not consider any branches. The error code analysis calculates the super set of possible error codes in a function. This is done by visiting every branch and collecting all error codes everywhere.
+
+The following example demonstrates this limit:
+
+```go
+// Errors:
+//
+//    - example-error-unreachable -- is never actually returned
+func DeadBranchError() error {
+    if false {
+        return &Error{"example-error-unreachable"}
+    }
+    return nil
+}
+```
+
+### Error has to be Last Result
+
+When a function has multiple results, the error result has to be the last result. This is a convention that is already common (but not enforced) in go and simplifies the analysis.
+
+The tool recognises if a function has the error as a non-last return and complains about it.
+
+```go
+func ErrorNotLast() (error, string) {
+    return nil, nil
+}
+```
+
+The example code above would result in the following error message from the analyser:
+
+```text
+...\testdata\src\examples\06_limitations.go:26:22: error should be returned as the last argument
+```
