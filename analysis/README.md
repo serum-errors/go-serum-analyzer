@@ -441,7 +441,77 @@ Here `BoxInvalidImpl` is assigned to a variable of type `Box` and therefore the 
 ...\testdata\src\examples\04_interfaces.go:80:14: cannot use expression as "Box" value: method "Put" declares the following error codes which were not part of the interface: [examples-error-not-implemented]
 ```
 
+### Embedded Interfaces
+
+Embedded interfaces where the foreign interfaces declare error codes are not supported yet.
+
 ## Error Constructors
+
+The analysis tool allows the definition of error constructors:
+
+* Error constructors declare exactly one parameter to be an error code.
+  * We call this parameter: **error code parameter**
+  * The declaration has to be inside the error declarations block,
+  * and match the format `- param: <param-name> -- <comment>`.
+    * `<param-name>` has to be a function parameter.
+    * That parameter has to be of type `string`.
+* The error code parameter can then be used wherever a constant string error code is used.
+* When calling an error constructor, the error code argument has to be a constant string or an error code parameter.
+
+The following examples illustrate how to define error constructors and how to use them:
+
+```go
+// Errors:
+//
+//    - param: code -- error code parameter
+func NewError(code string) *Error {
+    return &Error{code}
+}
+
+// Errors:
+//
+//    - examples-error-not-implemented --
+func CallConstructor() error {
+    return NewError("examples-error-not-implemented")
+}
+```
+
+Assignments of error code parameters to error code fields are handled by the analyser.
+
+```go
+// Errors:
+//
+//    - param: c               --
+//    - examples-error-unknown --
+//    - examples-error-flagged --
+func NewError3(flag bool, c string) *Error3 {
+    err := &Error3{flag, "examples-error-unknown"}
+    if flag {
+        err.code = c
+    }
+    return err
+}
+```
+
+Error constructors may also call other error constructors and even recursive calls of error constructors are allowed.
+
+```go
+// Errors:
+//
+//    - param: errorCode       --
+//    - examples-error-unknown --
+//    - examples-error-flagged --
+func NewGeneralError(flag bool, errorCode string) error {
+    if flag {
+        return NewError3(flag, errorCode)
+    }
+    return NewError(errorCode)
+}
+```
+
+!!!The following check is not yet implemented!!!
+
+Error constructors are not allowed to modifiy the error code parameter, pass it to functions, or use it in type construction. This limitation is enforced, to make static analysis possible. (E.g. a function could modify the error code parameter without us knowing, and we want to avoid that.)
 
 ## Limitations
 
