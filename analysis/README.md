@@ -193,7 +193,7 @@ To be considered a valid ree error a type must implement the following interface
 
 For the `Error` method, there are no limitations to how it may be implemented. We recommend to follow the style laid out in: [../README.md](../README.md).
 
-The `Code` method is used to get the error code from an error type. For the analysis tool to be able to statically track error codes, the `Code` method has to follow some conventions:
+The `Code` method is used to get the error code from an error type instance. For the analysis tool to be able to statically track error codes, the `Code` method has to follow some conventions:
 
 * return a constant string, or
   * Multiple different constant strings may be returned.
@@ -207,8 +207,9 @@ There may be a mix of returning the error code field and constatns inside of one
 
 Assignment to error code fields is also restricted to make static analysis possible:
 
-* Assignments inside of any method of the error type can only be constant strings.
-  * Those constants are treated as if they were returned by the `Code` method.
+* Assignments to the error code field have to be constant strings.
+  * If a constant string is assigned in a method of the error type: that string is added to the possible error codes the error type may return.
+  * If the assignment is done in a function returning the modified error: the assigned string is added to the possible error codes this function may return.
 * All other assignments are prohibited.
 
 ### Examples
@@ -229,15 +230,22 @@ The next example shows how constant string error codes could be returned:
 ```go
 type Error2 string
 
+const (
+    errorPrefix     = "examples-error-"
+    ErrorEmpty      = errorPrefix + "empty"
+    ErrorDisconnect = errorPrefix + "disconnect"
+    ErrorUnknown    = errorPrefix + "unknown"
+)
+
 func (e Error2) Error() string { return fmt.Sprintf("%s: %s", e.Code(), e) }
 func (e Error2) Code() string {
     switch {
     case e == "":
-        return "examples-error-empty"
+        return ErrorEmpty
     case strings.HasPrefix(string(e), "peer disconnected"):
-        return "examples-error-disconnect"
+        return ErrorDisconnect
     default:
-        return "examples-error-unknown"
+        return ErrorUnknown
     }
 }
 ```
@@ -272,9 +280,55 @@ For more examples of possible or invalid error types see: [testdata/src/errortyp
 
 There are 3 possible origins of error codes that are considered:
 
-1. Type Construction
-2. Function Call
-3. Assignment to Code Field
+1. [Type Construction](#type-construction)
+2. [Assignment to Error Code Field](#assignment-to-error-code-field)
+3. [Function Call](#function-call)
+
+### Type Construction
+
+```go
+&Error{"examples-error-not-implemented"}
+```
+
+An error type construction adds all error codes that the `Code` method of this type may return. This includes:
+
+* constant strings returned by `Code`
+* error code field as assigned by the construction
+  * In the example above the error code field is initialised to "examples-error-not-implemented" and this code is therefore added.
+* constant strings assigned to the error code field in any method of the error type
+  * See `Error3` above for an example, with the assignment: `e.code = "examples-error-flagged"`
+
+### Assignment to Error Code Field
+
+```go
+err.code = "examples-error-closed"
+```
+
+Assigning a constant string to an error code field adds this string as an error code. If `err` in the example above is returned from a function, this function has to declare the error code "examples-error-closed".
+
+For error codes assigned that way, the same format rules apply as for any other error code.
+
+### Function Call
+
+```go
+TryOpen("example.txt")
+```
+
+```go
+// Errors:
+//
+//    - examples-error-failed       -- failed to open file
+//    - examples-error-invalid-name -- invalid file name
+func TryOpen(fileName string) error { ... }
+```
+
+Calling a function adds all error codes which this function may return. In the example above, if the result of the function call to `TryOpen` is returned from a function, this function has to declare the error codes "examples-error-failed" and "examples-error-invalid-name".
+
+Functions called from the **same package** as the caller are included in the analysis. This allows for **local functions** to not declare error codes but still work correctly in the analysis.
+
+Calls to functions of **other packages** entierly trust the declared error codes. No messages are generated on the caller side, if declared and actual error codes have mismatches.
+
+**Recursive calls** of functions set the error codes of all involved functions to the super set of error codes in those functions. See [testdata/src/recursion/recursion.go](testdata/src/recursion/recursion.go) for some examples.
 
 ## Interfaces
 
@@ -286,3 +340,4 @@ TODO:
 
 * Dead branches cannot be detected
 * Error has to be last return
+* Leaking modifiable errors

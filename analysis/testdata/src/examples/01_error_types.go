@@ -14,15 +14,22 @@ func (e *Error) Code() string  { return e.TheCode }
 
 type Error2 string // want Error2:`ErrorType{Field:<nil>, Codes:examples-error-disconnect examples-error-empty examples-error-unknown}`
 
+const (
+	errorPrefix     = "examples-error-"
+	ErrorEmpty      = errorPrefix + "empty"
+	ErrorDisconnect = errorPrefix + "disconnect"
+	ErrorUnknown    = errorPrefix + "unknown"
+)
+
 func (e Error2) Error() string { return fmt.Sprintf("%s: %s", e.Code(), e) }
 func (e Error2) Code() string {
 	switch {
 	case e == "":
-		return "examples-error-empty"
+		return ErrorEmpty
 	case strings.HasPrefix(string(e), "peer disconnected"):
-		return "examples-error-disconnect"
+		return ErrorDisconnect
 	default:
-		return "examples-error-unknown"
+		return ErrorUnknown
 	}
 }
 
