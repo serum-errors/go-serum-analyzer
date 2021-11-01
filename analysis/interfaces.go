@@ -592,7 +592,8 @@ func findConversionsInRangeStmtValue(c *context, statement *ast.RangeStmt) {
 
 func findConversionsInSendStmt(c *context, statement *ast.SendStmt) {
 	pass := c.pass
-	chanType := pass.TypesInfo.TypeOf(statement.Chan).(*types.Chan)
+	lhsType := pass.TypesInfo.TypeOf(statement.Chan)
+	chanType := getUnderlyingType(lhsType).(*types.Chan)
 	errorInterface := importErrorInterfaceFact(pass, chanType.Elem())
 	if errorInterface == nil {
 		return

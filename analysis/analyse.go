@@ -112,37 +112,6 @@ func (f *funcDefinition) Type() *ast.FuncType {
 	return f.funcLit.Type
 }
 
-// isErrorCodeValid checks if the given error code is valid.
-//
-// Valid error codes have to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$".
-func isErrorCodeValid(code string) bool {
-	if len(code) == 0 {
-		return false
-	}
-
-	// Verify that first and last char do not contain invalid values.
-	if code[0] == '-' || (code[0] >= '0' && code[0] <= '9') {
-		return false
-	}
-	if code[len(code)-1] == '-' {
-		return false
-	}
-
-	// Verify that the remaining chars match [a-zA-Z0-9\-]
-	for _, c := range code {
-		if !(c == '-' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isMethod checks if funcDecl is a method by looking if it has a single receiver.
-func isMethod(funcDecl *ast.FuncDecl) bool {
-	return funcDecl != nil && funcDecl.Recv != nil && len(funcDecl.Recv.List) == 1
-}
-
 func runVerify(pass *analysis.Pass) (interface{}, error) {
 	lookup := collectFunctions(pass)
 
@@ -198,6 +167,64 @@ var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 	tReeError.Method(1),
 	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewNamed(types.NewTypeName(token.NoPos, nil, "error", tError), nil, nil))), false)),
 }, nil).Complete()
+
+// isErrorCodeValid checks if the given error code is valid.
+//
+// Valid error codes have to match against: "^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$" or "^[a-zA-Z]$".
+func isErrorCodeValid(code string) bool {
+	if len(code) == 0 {
+		return false
+	}
+
+	// Verify that first and last char do not contain invalid values.
+	if code[0] == '-' || (code[0] >= '0' && code[0] <= '9') {
+		return false
+	}
+	if code[len(code)-1] == '-' {
+		return false
+	}
+
+	// Verify that the remaining chars match [a-zA-Z0-9\-]
+	for _, c := range code {
+		if !(c == '-' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isMethod checks if funcDecl is a method by looking if it has a single receiver.
+func isMethod(funcDecl *ast.FuncDecl) bool {
+	return funcDecl != nil && funcDecl.Recv != nil && len(funcDecl.Recv.List) == 1
+}
+
+// getNamedType casts the given type to *types.Named if possible,
+// unpacking pointers if they occur.
+// getNamedType returns nil, if said conversion fails.
+func getNamedType(typ types.Type) *types.Named {
+	named, ok := typ.(*types.Named)
+	if ok {
+		return named
+	}
+
+	pointer, ok := typ.(*types.Pointer)
+	if ok {
+		return getNamedType(pointer.Elem())
+	}
+
+	return nil
+}
+
+// getUnderlyingType gets the underlying type, if the passed type was a named type.
+func getUnderlyingType(typ types.Type) types.Type {
+	named := getNamedType(typ)
+	if named == nil {
+		return typ
+	} else {
+		return named.Underlying()
+	}
+}
 
 // findErrorDocs looks at the given comments and tries to find error code declarations.
 func findErrorDocs(comments *ast.CommentGroup) (CodeSet, string, bool, error) {

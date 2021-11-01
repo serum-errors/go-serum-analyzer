@@ -466,7 +466,9 @@ func InvalidForRange(
 	}
 }
 
-func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface) {
+type SimpleInterfaceChan chan SimpleInterface
+
+func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface, csi2 SimpleInterfaceChan) {
 	var si SimpleInterface = <-c // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	var some = <-c               // no problem
 	c <- InvalidSimpleImpl{}     // no problem
@@ -474,6 +476,8 @@ func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface)
 	csi <- InvalidSimpleImpl{}   // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	csi <- <-c                   // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 	csi <- si                    // no problem
+	csi2 <- InvalidSimpleImpl{}  // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+	csi2 <- <-c                  // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 
 	// Same cases but this time in a select statement:
 	select {
@@ -488,6 +492,10 @@ func InvalidChannelOperation(c chan InvalidSimpleImpl, csi chan SimpleInterface)
 	case csi <- InvalidSimpleImpl{}: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 		_ = si
 	case csi <- <-c: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	case csi2 <- InvalidSimpleImpl{}: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
+		_ = si
+	case csi2 <- <-c: // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[unknown-error]`
 		_ = si
 	case csi <- si:
 		_ = si

@@ -39,23 +39,6 @@ func (f *ErrorCodeField) String() string {
 	return fmt.Sprintf("{Name:%q, Position:%d}", f.Name, f.Position)
 }
 
-// getNamedType casts the given type to *types.Named if possible,
-// unpacking pointers if they occur.
-// getNamedType returns nil, if said conversion fails.
-func getNamedType(typ types.Type) *types.Named {
-	named, ok := typ.(*types.Named)
-	if ok {
-		return named
-	}
-
-	pointer, ok := typ.(*types.Pointer)
-	if ok {
-		return getNamedType(pointer.Elem())
-	}
-
-	return nil
-}
-
 // findAndTagErrorTypes finds all errors with a Code() method
 // and exports an ErrorType fact for all valid error types.
 func findAndTagErrorTypes(pass *analysis.Pass, lookup *funcLookup) {
