@@ -73,7 +73,7 @@ Error declarations are done in the comments before an error returning function a
 * The next lines are **error code** declarations:
 
   * Declarations match the format: `- <code> -- <comment>`
-  * `<code>` has to be composed of several hunks of ASCII text, which are joined by dash characters ("-"). More precisely `<code>` has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`. Find more information on recommended conventions for codes under: [../README.md](../README.mc#recommended-conventions-for-codes)
+  * `<code>` has to be composed of several hunks of ASCII text, which are joined by dash characters ("-"). More precisely `<code>` has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`. Find more information on recommended conventions for codes under: [../README.md](../README.md#recommended-conventions-for-codes)
   * `<comment>` can be any string.
   * Any number of **whitespaces** are allowed before and after every part of a declaration.
     * In the example above whitespaces are used to align the double dashes ("--") after the `<code>` part.
@@ -354,11 +354,9 @@ type Box interface {
 }
 ```
 
-All interface methods are required to declare error codes, if they return an error.
-
-The format of the declaration and the format of the error code is checked in the same way as for function definitions. (See more under [Error Declaration](#error-declaration))
-
-Calls to interface methods add the declared error codes to the analysis.
+* All interface methods are required to declare error codes, if they return an error.
+* The format of the declaration and the format of the error code is checked in the same way as for function definitions. (See more under [Error Declaration](#error-declaration))
+* Calls to interface methods add the declared error codes to the analysis.
 
 The following code snippets contain definitions for `BoxImpl` and `BoxInvalidImpl`, two types, which implement the `Box` interface:
 
@@ -544,7 +542,7 @@ func ModifyError(err *Error) {
 This is mostly the case to allow clients to pass errors to logging functions and similar. For example, the following could be a desierable scenario:
 
 ```go
-err := TryOpen(fileName)
+var err *Error = TryOpen(fileName)
 if err != nil {
     logger.Fatalf(err, "failed to open file: %q", fileName)
 }
