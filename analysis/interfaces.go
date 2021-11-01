@@ -416,7 +416,8 @@ func findConversionsInTypeSwitchStmt(c *context, typeSwitchStmt *ast.TypeSwitchS
 
 func findConversionsInIndexExpr(c *context, indexExpr *ast.IndexExpr) {
 	pass := c.pass
-	mapType, ok := pass.TypesInfo.TypeOf(indexExpr.X).(*types.Map)
+	lhsType := pass.TypesInfo.TypeOf(indexExpr.X)
+	mapType, ok := getUnderlyingType(lhsType).(*types.Map)
 	if !ok {
 		// indexExpr.X can be a map or any of slice, array, pointer to array, or string.
 		// In case it is not a map, the index will be an integer and not relevant for the following checks.
@@ -438,12 +439,7 @@ func findConversionsInCompositeLit(c *context, composite *ast.CompositeLit) {
 
 	exprType := c.pass.TypesInfo.TypeOf(composite)
 
-	// Unpack named type to find actual type.
-	if namedType, ok := exprType.(*types.Named); ok {
-		exprType = namedType.Underlying()
-	}
-
-	switch exprType := exprType.(type) {
+	switch exprType := getUnderlyingType(exprType).(type) {
 	case *types.Struct:
 		findConversionsInStructLit(c, composite, exprType)
 	case *types.Slice:
@@ -553,7 +549,8 @@ func findConversionsInRangeStmtKey(c *context, statement *ast.RangeStmt) {
 	}
 
 	var exprType types.Type
-	switch rhsType := pass.TypesInfo.TypeOf(statement.X).(type) { // has to be: map or channel
+	rhsType := pass.TypesInfo.TypeOf(statement.X)
+	switch rhsType := getUnderlyingType(rhsType).(type) { // has to be: map or channel
 	case *types.Map:
 		exprType = rhsType.Key()
 	case *types.Chan:
@@ -579,7 +576,8 @@ func findConversionsInRangeStmtValue(c *context, statement *ast.RangeStmt) {
 	}
 
 	var exprType types.Type
-	switch rhsType := pass.TypesInfo.TypeOf(statement.X).(type) { // has to be: pointer to array, array, slice, or map
+	rhsType := pass.TypesInfo.TypeOf(statement.X)
+	switch rhsType := getUnderlyingType(rhsType).(type) { // has to be: pointer to array, array, slice, or map
 	case *types.Pointer:
 		arrayType := rhsType.Elem().(*types.Array)
 		exprType = arrayType.Elem()
