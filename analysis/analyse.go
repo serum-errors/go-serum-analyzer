@@ -320,7 +320,7 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 	return result
 }
 
-// findErrorCodeParamIdent tries to finds the error code param identifier in the parameter list
+// findErrorCodeParamIdent tries to find the error code param identifier in the parameter list
 // of the given function using the name of the parameter.
 func findErrorCodeParamIdent(pass *analysis.Pass, funcType *ast.FuncType, errorCodeParamName string) (*funcCodeParam, bool) {
 	if errorCodeParamName == "" {
