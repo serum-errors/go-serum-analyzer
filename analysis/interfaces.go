@@ -651,7 +651,7 @@ func checkIfTypeIsValidSubtypeForInterface(c *context, errorInterface *ErrorInte
 			var ok bool
 			methodDecl := lookup.searchMethod(pass, exprType, methodName)
 			foundCodes, ok = lookup.foundCodes[methodDecl]
-			if !ok {
+			if !ok && methodDecl != nil {
 				foundCodes = findErrorCodesInFunc(c, &funcDefinition{methodDecl, nil})
 			}
 		}
