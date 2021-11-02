@@ -40,14 +40,29 @@ type WithInvalidMethods interface {
 }
 
 type (
-	EmbeddedSimpleInterface interface {
+	EmbeddedSimpleInterface interface { // want EmbeddedSimpleInterface:"ErrorInterface: SimpleInterfaceMethod"
 		SimpleInterface
 	}
 
-	EmbeddedMultipleInterfaces interface {
+	EmbeddedMultipleInterfaces interface { // want EmbeddedMultipleInterfaces:"ErrorInterface: OtherMethod SimpleInterfaceMethod"
 		SimpleInterface
-		SimpleInterface2 // want "invalid: error code mismatch"
+		SimpleInterface2 // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: .interface-1-error interface-3-error]`
 		OtherSimpleInterface
+	}
+
+	EmbeddedOtherPackage interface { // want EmbeddedOtherPackage:"ErrorInterface: SimpleInterfaceMethod"
+		SimpleInterface
+		inner1.SimpleInterface
+	}
+
+	EmbeddedOtherPackage2 interface { // want EmbeddedOtherPackage2:"ErrorInterface: SimpleInterfaceMethod"
+		SimpleInterface
+		inner1.SimpleInterfaceIncompatible // want "invalid: error code mismatch"
+	}
+
+	EmbeddedOtherPackage3 interface { // want EmbeddedOtherPackage3:"ErrorInterface: SimpleInterfaceMethod"
+		inner1.SimpleInterface
+		inner1.SimpleInterfaceIncompatible // want "invalid: error code mismatch"
 	}
 
 	SimpleInterface2 interface { // want SimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
@@ -66,12 +81,13 @@ type (
 	}
 
 	EmbeddedSimpleInterface2 interface { // want EmbeddedSimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
-		SimpleInterface
+		SimpleInterface // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: .interface-2-error interface-3-error]`
+
 		// Errors:
 		//
 		//    - interface-1-error -- could potentially be returned
 		//    - interface-3-error -- could potentially be returned
-		SimpleInterfaceMethod() error // want "invalid: error code mismatch"
+		SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: interface-1-error interface-3-error"
 	}
 )
 

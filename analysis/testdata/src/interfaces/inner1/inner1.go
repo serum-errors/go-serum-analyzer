@@ -20,6 +20,25 @@ type Inner1Interface1 interface { // want Inner1Interface1:"ErrorInterface: Inne
 	Inner1MethodWithoutError(a, b string) string
 }
 
+type SimpleInterface interface { // want SimpleInterface:"ErrorInterface: SimpleInterfaceMethod"
+	// SimpleInterfaceMethod is a method returning an error with error codes declared in doc.
+	//
+	// Errors:
+	//
+	//    - interface-1-error -- could potentially be returned
+	//    - interface-2-error -- could potentially be returned
+	SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: interface-1-error interface-2-error"
+}
+
+type SimpleInterfaceIncompatible interface { // want SimpleInterfaceIncompatible:"ErrorInterface: SimpleInterfaceMethod"
+	// SimpleInterfaceMethod is a method returning an error with error codes declared in doc.
+	//
+	// Errors:
+	//
+	//    - inner1-error -- could potentially be returned
+	SimpleInterfaceMethod() error // want SimpleInterfaceMethod:"ErrorCodes: inner1-error"
+}
+
 type Inner1Interface2 interface {
 	Inner1CodeNotDeclared() error // want `interface method "Inner1CodeNotDeclared" does not declare any error codes`
 }
