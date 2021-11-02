@@ -371,7 +371,14 @@ func findConversionsInTypeAssertExpr(c *context, typeAssertExpr *ast.TypeAssertE
 		return
 	}
 
-	checkIfExprHasValidSubtypeForInterface(c, errorInterface, targetType, typeAssertExpr.X)
+	// Check that the expression actually implements the interface in the assertion.
+	exprType := c.pass.TypesInfo.TypeOf(typeAssertExpr.X)
+	targetTypeInterface, ok := getUnderlyingType(targetType).(*types.Interface)
+	if ok && !types.Implements(exprType, targetTypeInterface) {
+		return
+	}
+
+	checkIfTypeIsValidSubtypeForInterface(c, errorInterface, targetType, exprType, typeAssertExpr.X)
 }
 
 func findConversionsInTypeSwitchStmt(c *context, typeSwitchStmt *ast.TypeSwitchStmt) {
@@ -398,13 +405,8 @@ func findConversionsInTypeSwitchStmt(c *context, typeSwitchStmt *ast.TypeSwitchS
 				continue
 			}
 
-			namedType := getNamedType(caseType)
-			if namedType == nil {
-				continue
-			}
-
 			// Check that the switch expression actually implements the interface in the case.
-			caseTypeInterface, ok := namedType.Underlying().(*types.Interface)
+			caseTypeInterface, ok := getUnderlyingType(caseType).(*types.Interface)
 			if !ok || !types.Implements(exprType, caseTypeInterface) {
 				continue
 			}

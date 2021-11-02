@@ -159,6 +159,7 @@ func InvalidConversion(incompatible SimpleInterfaceIncompatible, bs RandomInterf
 	_ = incompatible.(SimpleInterface)      // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
 	s, ok := incompatible.(SimpleInterface) // want `cannot use expression as "SimpleInterface" value: method "SimpleInterfaceMethod" declares the following error codes which were not part of the interface: \[incompatible-1-error incompatible-2-error]`
 	_, _ = s, ok
+	_ = incompatible.(RandomInterface).(SimpleInterface) // known problem / loop-hole
 
 	var si SimpleInterface
 	switch val := incompatible.(type) {
