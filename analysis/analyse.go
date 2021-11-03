@@ -401,22 +401,32 @@ func exportErrorCodesFact(pass *analysis.Pass, funcIdent *ast.Ident, codes CodeS
 	pass.ExportObjectFact(fn, fact)
 }
 
-// reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
-func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes CodeSet, claimedCodes CodeSet) {
+// checkIfErrorCodesMatch checks if the two given code sets match and
+// generates error messages if they don't match.
+func checkIfErrorCodesMatch(foundCodes CodeSet, claimedCodes CodeSet) (bool, string) {
 	missingCodes := Difference(foundCodes, claimedCodes).Slice()
 	unusedCodes := Difference(claimedCodes, foundCodes).Slice()
 	var errorMessages []string
-	if len(missingCodes) != 0 {
+
+	if len(missingCodes) > 0 {
 		sort.Strings(missingCodes)
 		errorMessages = append(errorMessages, fmt.Sprintf("missing codes: %v", missingCodes))
 	}
-	if len(unusedCodes) != 0 {
+
+	if len(unusedCodes) > 0 {
 		sort.Strings(unusedCodes)
 		errorMessages = append(errorMessages, fmt.Sprintf("unused codes: %v", unusedCodes))
 	}
 
-	if len(errorMessages) != 0 {
-		errorMessage := strings.Join(errorMessages, " ")
+	errorCodesMatch := len(errorMessages) == 0
+	errorMessage := strings.Join(errorMessages, " ")
+	return errorCodesMatch, errorMessage
+}
+
+// reportIfCodesDoNotMatch emits a diagnostic if the given code collections don't match.
+func reportIfCodesDoNotMatch(pass *analysis.Pass, funcDecl *ast.FuncDecl, foundCodes CodeSet, claimedCodes CodeSet) {
+	errorCodesMatch, errorMessage := checkIfErrorCodesMatch(foundCodes, claimedCodes)
+	if !errorCodesMatch {
 		pass.Reportf(funcDecl.Pos(), "function %q has a mismatch of declared and actual error codes: %s", funcDecl.Name.Name, errorMessage)
 	}
 }

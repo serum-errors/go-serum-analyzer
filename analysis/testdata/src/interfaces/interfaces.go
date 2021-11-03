@@ -46,7 +46,7 @@ type (
 
 	EmbeddedMultipleInterfaces interface { // want EmbeddedMultipleInterfaces:"ErrorInterface: OtherMethod SimpleInterfaceMethod"
 		SimpleInterface
-		SimpleInterface2 // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: .interface-1-error interface-3-error]`
+		SimpleInterface2 // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: missing codes: \[interface-1-error] unused codes: \[interface-3-error]`
 		OtherSimpleInterface
 	}
 
@@ -57,12 +57,12 @@ type (
 
 	EmbeddedOtherPackage2 interface { // want EmbeddedOtherPackage2:"ErrorInterface: SimpleInterfaceMethod"
 		SimpleInterface
-		inner1.SimpleInterfaceIncompatible // want "invalid: error code mismatch"
+		inner1.SimpleInterfaceIncompatible // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: missing codes: \[interface-1-error interface-2-error] unused codes: \[inner1-error]`
 	}
 
 	EmbeddedOtherPackage3 interface { // want EmbeddedOtherPackage3:"ErrorInterface: SimpleInterfaceMethod"
 		inner1.SimpleInterface
-		inner1.SimpleInterfaceIncompatible // want "invalid: error code mismatch"
+		inner1.SimpleInterfaceIncompatible // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: missing codes: \[interface-1-error interface-2-error] unused codes: \[inner1-error]`
 	}
 
 	SimpleInterface2 interface { // want SimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
@@ -81,7 +81,7 @@ type (
 	}
 
 	EmbeddedSimpleInterface2 interface { // want EmbeddedSimpleInterface2:"ErrorInterface: SimpleInterfaceMethod"
-		SimpleInterface // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: .interface-2-error interface-3-error]`
+		SimpleInterface // want `embedded interface is not compatible: method "SimpleInterfaceMethod" has mismatches in declared error codes: missing codes: \[interface-3-error] unused codes: \[interface-2-error]`
 
 		// Errors:
 		//

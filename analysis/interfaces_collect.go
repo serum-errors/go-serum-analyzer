@@ -153,6 +153,11 @@ func checkIfInterfaceMethodDeclaresErrors(pass *analysis.Pass, interfaceType *as
 	}
 }
 
+// findErrorReturningEmbeddingInterfaces searches through interfaces that embedd other interfaces starting with the given interface.
+//
+// Each visited interface is checked if it contains error returning methods.
+// If so, those methods are checked against methods with the equal name in other embedded interfaces (and methods on the current interface).
+// Diagnostics are emitted if declared error codes of equally named methods do not match.
 func findErrorReturningEmbeddingInterfaces(pass *analysis.Pass, errorInterfaces map[string]*errorInterfaceInternal, embeddingInterfaces map[string]*errorInterfaceInternal) {
 	embeddedInterfaceNames := make([]string, 0, len(embeddingInterfaces))
 	for name := range embeddingInterfaces {
@@ -174,7 +179,11 @@ func embeddingInterfaceDFS(pass *analysis.Pass, errorInterfaces map[string]*erro
 	for _, embedded := range embedding.embeddedInterfaces {
 		embeddedIdent, ok := embedded.(*ast.Ident)
 		if !ok {
-			// TODO: handle packages
+			exprType := pass.TypesInfo.TypeOf(embedded)
+			errorInterface := importErrorInterfaceFact(pass, exprType)
+			if errorInterface != nil {
+				addEmbeddedInterfaceErrorMethodsForFact(pass, embedding, errorInterface, embedded)
+			}
 			continue
 		}
 
@@ -187,7 +196,7 @@ func embeddingInterfaceDFS(pass *analysis.Pass, errorInterfaces map[string]*erro
 
 		errorInterface, ok := errorInterfaces[embeddedIdent.Name]
 		if ok {
-			addEmbeddedInterfaceMethods(pass, embedding, errorInterface, embedded)
+			addEmbeddedInterfaceErrorMethods(pass, embedding, errorInterface, embedded)
 		}
 	}
 
@@ -196,23 +205,39 @@ func embeddingInterfaceDFS(pass *analysis.Pass, errorInterfaces map[string]*erro
 	}
 }
 
-func addEmbeddedInterfaceMethods(pass *analysis.Pass, embedding *errorInterfaceInternal, add *errorInterfaceInternal, reportPos analysis.Range) {
+// addEmbeddedInterfaceErrorMethods adds all error methods from one given interface (add) to the other given interface (embedding).
+//
+// If an error method already exists in the target interface, the defined error codes are compared and
+// diagnostics are emitted if they don't match.
+func addEmbeddedInterfaceErrorMethods(pass *analysis.Pass, embedding *errorInterfaceInternal, add *errorInterfaceInternal, reportPos analysis.Range) {
 	for methodName, newErrorMethod := range add.errorMethods {
 		oldErrorMethod, ok := embedding.errorMethods[methodName]
 		if !ok {
-			embedding.errorMethods[methodName] = newErrorMethod
+			embedding.errorMethods[methodName] = &errorMethod{nil, newErrorMethod.codes}
 			continue
 		}
 
-		// Check if new and old methods are compatible.
-		missing := Difference(newErrorMethod.codes.codes, oldErrorMethod.codes.codes)
-		unused := Difference(oldErrorMethod.codes.codes, newErrorMethod.codes.codes)
-		diff := Union(missing, unused)
-		if len(diff) > 0 {
-			diff := diff.Slice()
-			sort.Strings(diff)
-			pass.ReportRangef(reportPos, "embedded interface is not compatible: method %q has mismatches in declared error codes: %v", methodName, diff)
+		checkEmbeddedInterfaceErrorMethodCodes(pass, oldErrorMethod.codes.codes, newErrorMethod.codes.codes, methodName, reportPos)
+	}
+}
+
+func addEmbeddedInterfaceErrorMethodsForFact(pass *analysis.Pass, embedding *errorInterfaceInternal, add *ErrorInterface, reportPos analysis.Range) {
+	for methodName, newErrorMethodCodes := range add.ErrorMethods {
+		oldErrorMethod, ok := embedding.errorMethods[methodName]
+		if !ok {
+			embedding.errorMethods[methodName] = &errorMethod{nil, funcCodes{newErrorMethodCodes, nil}}
+			continue
 		}
+
+		checkEmbeddedInterfaceErrorMethodCodes(pass, oldErrorMethod.codes.codes, newErrorMethodCodes, methodName, reportPos)
+	}
+}
+
+// checkEmbeddedInterfaceErrorMethodCodes checks if new and old codes of methods with equal name are compatible.
+func checkEmbeddedInterfaceErrorMethodCodes(pass *analysis.Pass, oldCodes CodeSet, newCodes CodeSet, methodName string, reportPos analysis.Range) {
+	errorCodesMatch, errorMessage := checkIfErrorCodesMatch(oldCodes, newCodes)
+	if !errorCodesMatch {
+		pass.ReportRangef(reportPos, "embedded interface is not compatible: method %q has mismatches in declared error codes: %s", methodName, errorMessage)
 	}
 }
 
@@ -222,6 +247,10 @@ func exportInterfaceFacts(pass *analysis.Pass, interfaces []*errorInterfaceInter
 	for _, errorInterface := range interfaces {
 		exportErrorInterfaceFact(pass, errorInterface)
 		for _, errorMethod := range errorInterface.errorMethods {
+			if errorMethod.ident == nil {
+				continue
+			}
+
 			if errorMethod.codes.param != nil {
 				exportErrorConstructorFact(pass, errorMethod.ident, errorMethod.codes.param)
 			}
@@ -238,8 +267,8 @@ func exportErrorInterfaceFact(pass *analysis.Pass, errorInterface *errorInterfac
 	}
 
 	methods := make(map[string]CodeSet, len(errorInterface.errorMethods))
-	for methodIdent, errorMethod := range errorInterface.errorMethods {
-		methods[methodIdent] = errorMethod.codes.codes
+	for methodName, errorMethod := range errorInterface.errorMethods {
+		methods[methodName] = errorMethod.codes.codes
 	}
 
 	fact := ErrorInterface{methods}
