@@ -81,7 +81,7 @@ Error declarations are done in the comments before an error returning function a
 * **Comments** are allowed between error code declarations:
   * Any line that does not start with a dash character ("-") is regarded as a comment.
 
-* The **declaration block ends**, when there's another fully blank line
+* The **declaration block ends** when there's another fully blank line.
 
 ### Declare No Errors
 
@@ -129,7 +129,7 @@ The tool would emit the following output for the example above.
 The second example returns errors, but does not declare any of the returned codes.
 
 ```go
-// Errors: none -- not actually true, but we want to showcasse missing error codes.
+// Errors: none -- not actually true, but we want to showcase missing error codes.
 func (c *Collection) AddMissing(item interface{}) error {
     if item == nil {
         return &Error{"examples-error-invalid-arg"}
@@ -203,7 +203,7 @@ The `Code` method is used to get the error code from an error type instance. For
   * We call this field the **error code field**.
   * When constructing an error, this field has to be set to a constant string.
 
-There may be a mix of returning the error code field and constatns inside of one `Code` method.
+There may be a mix of returning the error code field and constants inside of one `Code` method.
 
 Assignment to error code fields is also restricted to make static analysis possible:
 
@@ -252,7 +252,7 @@ func (e Error2) Code() string {
 
 Whenever `Error2` is returned anywhere, the analysis adds all three error codes as possible outcomes. So a function with the statement `return Error2("error message")` has to declare the error codes: "examples-error-empty", "examples-error-disconnect", and "examples-error-unknown"
 
-As a final example we show how returning fields and constants can be mixxed:
+As a final example we show how returning fields and constants can be mixed:
 
 ```go
 type Error3 struct {
@@ -509,7 +509,7 @@ func NewGeneralError(flag bool, errorCode string) error {
 
 !!!The following check is not yet implemented!!!
 
-Error constructors are not allowed to modifiy the error code parameter, pass it to functions, or use it in type construction. This limitation is enforced, to make static analysis possible. (E.g. a function could modify the error code parameter without us knowing, and we want to avoid that.)
+Error constructors are not allowed to modify the error code parameter, pass it to functions, or use it in type construction. This limitation is enforced, to make static analysis possible. (E.g. a function could modify the error code parameter without us knowing, and we want to avoid that.)
 
 ## Limitations
 
@@ -520,7 +520,7 @@ This section describes limitations in the analyser. That includes:
 
 ### Leaking Modifiable Errors
 
-It is allowed to leak modifieable errors.
+It is allowed to leak modifiable errors.
 
 For example in the following code, the invalid assignment to the error code would not be found by the analysis tool:
 
@@ -539,7 +539,7 @@ func ModifyError(err *Error) {
 }
 ```
 
-This is mostly the case to allow clients to pass errors to logging functions and similar. For example, the following could be a desierable scenario:
+This is mostly the case to allow clients to pass errors to logging functions and similar. For example, the following could be a desirable scenario:
 
 ```go
 var err *Error = TryOpen(fileName)
