@@ -83,3 +83,22 @@ func UseBoxInvalidImplAsBox() {
 			`cannot use expression as "Box" value: method "Pop" declares the following error codes which were not part of the interface: \[examples-error-not-implemented]` */
 	b.Put(b)
 }
+
+type Box2 interface { // want Box2:"ErrorInterface: Pop Put"
+	// Put makes the box store the given value.
+	//
+	// Errors: none
+	Put(value interface{}) error // want Put:"ErrorCodes:"
+
+	// Pop retrieves the value stored in the box and removes it from the box.
+	//
+	// Errors:
+	//
+	//    - examples-error-invalid -- in case of an invalid operation
+	Pop() (interface{}, error) // want Pop:"ErrorCodes: examples-error-invalid"
+}
+
+type EmbeddingBox interface { // want EmbeddingBox:"ErrorInterface: Pop Put"
+	Box
+	Box2 // want `embedded interface is not compatible: method "Put" has mismatches in declared error codes: missing codes: \[examples-error-arg-nil examples-error-invalid examples-error-unknown]`
+}

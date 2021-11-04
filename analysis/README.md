@@ -440,9 +440,50 @@ Here `BoxInvalidImpl` is assigned to a variable of type `Box` and therefore the 
 ...\testdata\src\examples\04_interfaces.go:80:14: cannot use expression as "Box" value: method "Put" declares the following error codes which were not part of the interface: [examples-error-not-implemented]
 ```
 
-### Embedded Interfaces
+### Embedding Interfaces
 
-Embedded interfaces where the foreign interfaces declare error codes are not supported yet.
+If an embedding interface or any of it's embedded interfaces contain error returning methods, the analyser checks if the declared error codes for those methods are compatible. This means concretely: if two methods with the same name are found, their declared error codes have to exactly match.
+
+This approach is insipred by how the go compiler handles embedding interfaces: there, if two methods with the same name are found, their signature has to exactly match.
+
+The following example demonstrates, how embedding interfaces are handled in the analysis.
+
+```go
+type Box interface {
+    // Errors:
+    //
+    //    - examples-error-arg-nil -- if the given value is nil
+    //    - examples-error-invalid -- if the box already holds a value
+    //    - examples-error-unknown -- if an unexpected error occurred
+    Put(value interface{}) error
+
+    // Errors:
+    //
+    //    - examples-error-invalid -- if the box was empty
+    Pop() (interface{}, error)
+}
+
+type Box2 interface {
+    // Errors: none
+    Put(value interface{}) error
+
+    // Errors:
+    //
+    //    - examples-error-invalid -- in case of an invalid operation
+    Pop() (interface{}, error)
+}
+
+type EmbeddingBox interface {
+    Box
+    Box2
+}
+```
+
+The interface `EmbeddingBox` embedds both `Box` and `Box2`. The error codes of the methods `Box.Pop` and `Box2.Pop` match exactly and are therefore no problem. The error codes of the `Put` methods do not match and the analyser produces the following error message:
+
+```text
+...\testdata\src\examples\04_interfaces.go:103:2: embedded interface is not compatible: method "Put" has mismatches in declared error codes: missing codes: [examples-error-arg-nil examples-error-invalid examples-error-unknown]
+```
 
 ## Error Constructors
 
