@@ -777,50 +777,72 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 	// Look for for `*ast.AssignStmt` in the function that could've affected this.
 	ast.Inspect(within.body(), func(node ast.Node) bool {
 		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
-		assignment, ok := node.(*ast.AssignStmt)
-		if !ok {
-			return true
+
+		switch assignment := node.(type) {
+		case *ast.AssignStmt:
+			assignmentCodes := findErrorCodesFromAssignment(c, visitedIdents, ident, within, assignment.Lhs, assignment.Rhs)
+			result = Union(result, assignmentCodes)
+
+			// Adding codes that originate from assignments to the error code field.
+			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, within, nil, ident, assignment)
+			result = Union(result, newCodes)
+		case *ast.ValueSpec:
+			if len(assignment.Values) == 0 {
+				return true
+			}
+
+			lhs := make([]ast.Expr, len(assignment.Names))
+			for i, name := range assignment.Names {
+				lhs[i] = name
+			}
+
+			assignmentCodes := findErrorCodesFromAssignment(c, visitedIdents, ident, within, lhs, assignment.Values)
+			result = Union(result, assignmentCodes)
 		}
-
-		// Look for our ident's object in the left-hand-side of the assign.
-		// Either follow up on the statement at the same index in the Rhs,
-		// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
-		for i, lhsEntry := range assignment.Lhs {
-			lhsEntry, ok := lhsEntry.(*ast.Ident)
-			if !ok {
-				continue
-			}
-
-			if lhsEntry.Obj != ident.Obj {
-				continue
-			}
-
-			if len(assignment.Lhs) == len(assignment.Rhs) {
-				newCodes := findErrorCodesInExpression(c, visitedIdents, assignment.Rhs[i], within)
-				result = Union(result, newCodes)
-			} else {
-				// Destructuring mode.
-				// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
-				if i != len(assignment.Lhs)-1 {
-					pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
-					continue
-				}
-				// Because it's a CallExpr, we're done here: this is part of the result.
-				if callExpr, ok := assignment.Rhs[0].(*ast.CallExpr); ok {
-					newCodes := findErrorCodesInCallExpression(c, callExpr, within)
-					result = Union(result, newCodes)
-				} else {
-					panic("what?")
-				}
-			}
-		}
-
-		// Adding codes that originate from assignments to the error code field.
-		newCodes := findCodesAssignedToErrorCodeField(pass, lookup, within, nil, ident, assignment)
-		result = Union(result, newCodes)
 
 		return true
 	})
+
+	return result
+}
+
+// findErrorCodesFromAssignment looks for our ident's object in the left-hand-side of the assignment.
+//
+// Either follow up on the statement at the same index in the Rhs,
+// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
+func findErrorCodesFromAssignment(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, within *funcDefinition, lhs []ast.Expr, rhs []ast.Expr) CodeSet {
+	pass := c.pass
+	result := Set()
+
+	for i, lhsEntry := range lhs {
+		lhsEntry, ok := lhsEntry.(*ast.Ident)
+		if !ok {
+			continue
+		}
+
+		if lhsEntry.Obj != ident.Obj {
+			continue
+		}
+
+		if len(lhs) == len(rhs) {
+			newCodes := findErrorCodesInExpression(c, visitedIdents, rhs[i], within)
+			result = Union(result, newCodes)
+		} else {
+			// Destructuring mode.
+			// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+			if i != len(lhs)-1 {
+				pass.ReportRangef(lhsEntry, "unsupported: tracking error codes for function call with error as non-last return argument")
+				continue
+			}
+			// Because it's a CallExpr, we're done here: this is part of the result.
+			if callExpr, ok := rhs[0].(*ast.CallExpr); ok {
+				newCodes := findErrorCodesInCallExpression(c, callExpr, within)
+				result = Union(result, newCodes)
+			} else {
+				panic("what?")
+			}
+		}
+	}
 
 	return result
 }

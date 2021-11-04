@@ -479,7 +479,7 @@ type EmbeddingBox interface {
 }
 ```
 
-The interface `EmbeddingBox` embedds both `Box` and `Box2`. The error codes of the methods `Box.Pop` and `Box2.Pop` match exactly and are therefore no problem. The error codes of the `Put` methods do not match and the analyser produces the following error message:
+The interface `EmbeddingBox` embedds both `Box` and `Box2`. The error codes of the methods `Box.Pop` and `Box2.Pop` match exactly and are therefore no problem. The declared error codes of the `Put` methods do not match and the analyser produces the following error message:
 
 ```text
 ...\testdata\src\examples\04_interfaces.go:103:2: embedded interface is not compatible: method "Put" has mismatches in declared error codes: missing codes: [examples-error-arg-nil examples-error-invalid examples-error-unknown]
