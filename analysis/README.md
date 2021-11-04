@@ -77,6 +77,7 @@ Error declarations are done in the comments before an error returning function a
   * `<comment>` can be any string.
   * Any number of **whitespaces** are allowed before and after every part of a declaration.
     * In the example above whitespaces are used to align the double dashes ("--") after the `<code>` part.
+    * It is highly recommended to use enough whitespace before the declaration to turn it into a preformatted block per golang's documentation conventions, as this will be the most readable when the docs are rendered to HTML.
 
 * **Comments** are allowed between error code declarations:
   * Any line that does not start with a dash character ("-") is regarded as a comment.
