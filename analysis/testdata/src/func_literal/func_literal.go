@@ -183,6 +183,33 @@ func OutOfBounds() *Error { // want OutOfBounds:"ErrorCodes:"
 	return nil
 }
 
+// Errors:
+//
+//    - f1-1-error --
+//    - f1-2-error --
+//    - f2-1-error --
+//    - f2-2-error --
+func TwinAssignLambda() error { // want TwinAssignLambda:"ErrorCodes: f1-1-error f1-2-error f2-1-error f2-2-error"
+	var f1, f2 = func() error { return &Error{"f1-1-error"} }, func() error { return &Error{"f2-1-error"} }
+	f1, f2 = func() error { return &Error{"f1-2-error"} }, func() error { return &Error{"f2-2-error"} }
+	var f3, _ = ReturnTwinLambda() // want `unsupported: assigning result of function call to variable "f3" is not allowed`
+	_, f3 = ReturnTwinLambda()     // want `unsupported: assigning result of function call to variable "f3" is not allowed`
+	switch {
+	case true:
+		return f1()
+	case true:
+		return f2()
+	case true:
+		return f3()
+	default:
+		return nil
+	}
+}
+
+func ReturnTwinLambda() (func() error, func() error) {
+	return nil, nil
+}
+
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }

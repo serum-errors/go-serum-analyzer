@@ -599,7 +599,7 @@ func findErrorCodesFromFunctionCall(c *context, startingFunc *funcDefinition, ca
 					return Set()
 				}
 			default: // Lambda function call (e.g. *ast.ValueSpec, *ast.AssignStmt)
-				return findErrorCodesFromAllAssignedLambdas(c, map[*ast.Ident]struct{}{}, calledExpression, startingFunc)
+				return findErrorCodesFromAllAssignedLambdas(c, calledExpression, startingFunc)
 			}
 		}
 	case *ast.SelectorExpr: // this is what calls to other packages look like. (but can also be method call on a type)
@@ -639,105 +639,39 @@ func findErrorCodesFromFunctionCall(c *context, startingFunc *funcDefinition, ca
 	return result
 }
 
-// findValueForIdentInValueSpec finds the respective value for the given ident if
-// the ident was declared in a ast.ValueSpec and a value was assigned at declaration.
-func findValueForIdentInValueSpec(ident *ast.Ident) ast.Expr {
-	if ident == nil || ident.Obj == nil {
-		return nil
-	}
-
-	spec, ok := ident.Obj.Decl.(*ast.ValueSpec)
-	if !ok || len(spec.Values) == 0 {
-		return nil
-	}
-
-	for i, specIdent := range spec.Names {
-		if ident.Obj == specIdent.Obj {
-			return spec.Values[i]
-		}
-	}
-
-	return nil
-}
-
 // findErrorCodesFromAllAssignedLambdas finds error codes in the given function,
 // by looking into the definition of all lambdas directly or indirectly assigned to the given identifier.
-func findErrorCodesFromAllAssignedLambdas(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, function *funcDefinition) CodeSet {
+func findErrorCodesFromAllAssignedLambdas(c *context, ident *ast.Ident, function *funcDefinition) CodeSet {
 	pass := c.pass
 
-	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endles loop)
-	if _, ok := visitedIdents[ident]; ok {
-		return nil
-	}
-	visitedIdents[ident] = struct{}{}
+	taintResult := taintSpreadForIdentOfImmutableType(pass, ident, function)
 
-	if isIdentOriginOutsideFunctionScope(function, ident) {
+	for _, badIdent := range taintResult.identOutOfScope {
 		if function.funcDecl != nil { // expression is inside a function
-			pass.ReportRangef(ident, "error returning function literal may not be a parameter, receiver or global variable")
+			pass.ReportRangef(badIdent, "error returning function literal may not be a parameter, receiver or global variable")
 		} else { // expression is inside a lambda (function literal)
-			pass.ReportRangef(ident, "error returning function literal may not be a parameter, global variable or other variables declared outside of the function body")
+			pass.ReportRangef(badIdent, "error returning function literal may not be a parameter, global variable or other variables declared outside of the function body")
 		}
-		return nil
 	}
 
-	var result CodeSet
-
-	// Check if there can be an error codes extracted from the ident declaration statement if there is any.
-	initValue := findValueForIdentInValueSpec(ident)
-	if initValue != nil {
-		result = findErrorCodesInLambdaAssignment(c, visitedIdents, ident, initValue, function)
-	} else {
-		result = Set()
+	result := Set()
+	for _, expr := range taintResult.expressions {
+		newCodes := findErrorCodesInLambdaAssignment(c, ident, expr, function)
+		result = Union(result, newCodes)
 	}
-
-	ast.Inspect(function.body(), func(node ast.Node) bool {
-		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
-		assignment, ok := node.(*ast.AssignStmt)
-		if !ok {
-			return true
-		}
-
-		// Look for our ident's object in the left-hand-side of the assign.
-		// Either follow up on the statement at the same index in the Rhs,
-		// or watch out for a shorter Rhs that's just a CallExpr (i.e. it's a destructuring assignment).
-		for i, lhsEntry := range assignment.Lhs {
-			lhsEntry, ok := lhsEntry.(*ast.Ident)
-			if !ok {
-				continue
-			}
-
-			if lhsEntry.Obj != ident.Obj {
-				continue
-			}
-
-			if len(assignment.Lhs) != len(assignment.Rhs) {
-				pass.ReportRangef(assignment.Rhs[0], "unsupported: assignment to variable %q can only be an identifier or function literal", lhsEntry.Name)
-			} else {
-				newCodes := findErrorCodesInLambdaAssignment(c, visitedIdents, ident, assignment.Rhs[i], function)
-				result = Union(result, newCodes)
-			}
-		}
-
-		return true
-	})
-
 	return result
 }
 
-func findErrorCodesInLambdaAssignment(c *context, visitedIdents map[*ast.Ident]struct{}, ident *ast.Ident, assignedExpr ast.Expr, function *funcDefinition) CodeSet {
+func findErrorCodesInLambdaAssignment(c *context, ident *ast.Ident, assignedExpr ast.Expr, function *funcDefinition) CodeSet {
 	pass := c.pass
-	result := Set()
+	var result CodeSet
 
 	switch rhsEntry := astutil.Unparen(assignedExpr).(type) {
 	case *ast.FuncLit:
 		result = findErrorCodesInFunc(c, &funcDefinition{nil, rhsEntry})
-	case *ast.Ident: // other lambda variable or name of a function
-		if rhsEntry.Obj != nil && rhsEntry.Obj.Kind == ast.Var {
-			result = findErrorCodesFromAllAssignedLambdas(c, visitedIdents, rhsEntry, function)
-		} else {
-			callee := pass.TypesInfo.Uses[rhsEntry]
-			result = findErrorCodesFromFunctionCall(c, function, rhsEntry, callee, nil)
-		}
+	case *ast.Ident: // name of a function
+		callee := pass.TypesInfo.Uses[rhsEntry]
+		result = findErrorCodesFromFunctionCall(c, function, rhsEntry, callee, nil)
 	case *ast.SelectorExpr: // name of a function in other package
 		var callee types.Object
 		if sel, ok := pass.TypesInfo.Selections[rhsEntry]; ok {
@@ -770,6 +704,10 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Ident]struc
 		} else { // expression is inside a lambda (function literal)
 			pass.ReportRangef(ident, "returned error may not be a parameter, global variable or other variables declared outside of the function body")
 		}
+	}
+
+	if ident.Obj == nil {
+		return nil
 	}
 
 	result := Set()
@@ -815,7 +753,7 @@ func findErrorCodesFromAssignment(c *context, visitedIdents map[*ast.Ident]struc
 	result := Set()
 
 	for i, lhsEntry := range lhs {
-		lhsEntry, ok := lhsEntry.(*ast.Ident)
+		lhsEntry, ok := astutil.Unparen(lhsEntry).(*ast.Ident)
 		if !ok {
 			continue
 		}
@@ -835,7 +773,7 @@ func findErrorCodesFromAssignment(c *context, visitedIdents map[*ast.Ident]struc
 				continue
 			}
 			// Because it's a CallExpr, we're done here: this is part of the result.
-			if callExpr, ok := rhs[0].(*ast.CallExpr); ok {
+			if callExpr, ok := astutil.Unparen(rhs[0]).(*ast.CallExpr); ok {
 				newCodes := findErrorCodesInCallExpression(c, callExpr, within)
 				result = Union(result, newCodes)
 			} else {

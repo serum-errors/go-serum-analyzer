@@ -182,7 +182,7 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 		case *ast.FuncLit:
 			return false // We're not interested in return statements of nested function literals.
 		case *ast.ReturnStmt:
-			if len(node.Results) == 0 {
+			if len(node.Results) == 0 { // Return statement with named result.
 				// TODO: Handle named results
 				return false
 			} else if len(node.Results) != 1 {
