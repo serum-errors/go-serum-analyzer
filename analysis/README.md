@@ -198,7 +198,8 @@ The `Code` method is used to get the error code from an error type instance. For
 
 * return a constant string, or
   * Multiple different constant strings may be returned.
-  * The returned strings have to be error codes of a valid format (i.e. has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`)
+  * The returned strings have to be error codes of a valid format. (i.e. has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`)
+  * Empty strings are allowed, but not considered error codes.
 * return a field
   * If a field is returned multiple times, always the same field has to be returned.
   * We call this field the **error code field**.

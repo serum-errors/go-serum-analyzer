@@ -262,3 +262,24 @@ func (e *ModifyingError1) OtherMethod() string {
 	}
 	return "ModifyingError1"
 }
+
+type EmptyStringError struct{} // want EmptyStringError:"ErrorType{Field:<nil>, Codes:empty-string-error}"
+
+func (e *EmptyStringError) Code() string {
+	if e == nil {
+		return ""
+	}
+	return "empty-string-error"
+}
+func (*EmptyStringError) Error() string { return "empty-string-error" }
+
+type NamedReturnError struct{}
+
+func (*NamedReturnError) Code() (code string) {
+	code = "named-return-error"
+	return
+}
+func (*NamedReturnError) Error() (err string) {
+	err = "NamedReturnError"
+	return
+}

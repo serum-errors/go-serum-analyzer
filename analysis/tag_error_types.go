@@ -165,13 +165,14 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 // analyseCodeMethod inspects the error type.
 //
 // If the Code() method returns a constant value:
-//     That is the error code we're looking for
-//     Having multiple return statements returning different error codes is also possible
-//     (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
+//     - That is the error code we're looking for
+//     - Having multiple return statements returning different error codes is also possible
+//     - (We only ever consider constant value expressions. Everything else would be hard to impossible to track.)
+//     - Empty strings are allowed, but not considered a code
 // If the Code() method returns a single struct field:
-//     Find and return the field position and identifier
-//         Position needed for tracking creation with a constructor
-//         Identifier needed for creation with named constructor and tracking assignments to the field
+//     - Find and return the field position and identifier
+//         - Position needed for tracking creation with a constructor
+//         - Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
 func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
 	constants := Set()
@@ -179,9 +180,12 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
-			return false // Were not interested in return statements of nested function literals
+			return false // We're not interested in return statements of nested function literals.
 		case *ast.ReturnStmt:
-			if node.Results == nil || len(node.Results) != 1 {
+			if len(node.Results) == 0 {
+				// TODO: Handle named results
+				return false
+			} else if len(node.Results) != 1 {
 				panic("should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
 			}
 
@@ -193,7 +197,15 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 			if returnType.Value != nil {
 				value, err := getErrorCodeFromConstant(returnType.Value)
 				if err == nil {
-					constants.Add(value)
+					if value == "" {
+						return false // Ignore empty string result of Code method.
+					}
+
+					if isErrorCodeValid(value) {
+						constants.Add(value)
+					} else {
+						pass.ReportRangef(node, "error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+					}
 				} else {
 					pass.ReportRangef(node, "%v", err)
 				}

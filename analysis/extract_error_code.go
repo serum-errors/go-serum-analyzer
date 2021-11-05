@@ -121,7 +121,7 @@ func extractErrorCodeFromConstructorCall(pass *analysis.Pass, startingFunc *func
 func extractErrorCodeFromStringExpression(pass *analysis.Pass, function *funcDefinition, codeExpr ast.Expr) (string, bool) {
 	info, ok := pass.TypesInfo.Types[codeExpr]
 	if ok && info.Value != nil {
-		code, err := getErrorCodeFromConstant(info.Value)
+		code, err := getValidErrorCodeFromConstant(info.Value)
 		if err != nil {
 			pass.ReportRangef(codeExpr, "%v", err)
 		}
@@ -144,6 +144,19 @@ func extractErrorCodeFromStringExpression(pass *analysis.Pass, function *funcDef
 	return "", false
 }
 
+func getValidErrorCodeFromConstant(value constant.Value) (string, error) {
+	result, err := getErrorCodeFromConstant(value)
+	if err != nil {
+		return result, err
+	}
+
+	if !isErrorCodeValid(result) {
+		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+	}
+
+	return result, nil
+}
+
 func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	if value.Kind() != constant.String {
 		// Should not be reachable, because we already checked the signature of Code() to return a string.
@@ -156,10 +169,6 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	result, err := strconv.Unquote(result)
 	if err != nil {
 		return "", fmt.Errorf("problem unquoting string constant value: %v", err)
-	}
-
-	if !isErrorCodeValid(result) {
-		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 	}
 
 	return result, nil
