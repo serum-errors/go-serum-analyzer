@@ -111,7 +111,7 @@ func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type, spec 
 
 // getErrorTypeForError gets the ErrorType for the given error from cache,
 // or on a cache miss computes said ErrorType and stores it in the cache.
-func getErrorTypeForError(pass *analysis.Pass, lookup *funcLookup, err types.Type) (*ErrorType, error) {
+func getErrorTypeForError(pass *analysis.Pass, err types.Type) (*ErrorType, error) {
 	namedErr := getNamedType(err)
 	if namedErr == nil {
 		logf("err type: %#v\n", err)
@@ -297,17 +297,8 @@ func analyseMethodsOfErrorType(pass *analysis.Pass, lookup *funcLookup, errorTyp
 		}
 		receiver := receivers.Names[0]
 
-		ast.Inspect(method, func(node ast.Node) bool {
-			assignment, ok := node.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-
-			newCodes := findCodesAssignedToErrorCodeField(pass, lookup, &funcDefinition{method, nil}, errorType, receiver, assignment)
-			assignedCodes = Union(assignedCodes, newCodes)
-
-			return false
-		})
+		newCodes := findCodesAssignedToErrorCodeField(pass, &funcDefinition{method, nil}, errorType, receiver.Obj)
+		assignedCodes = Union(assignedCodes, newCodes)
 	}
 
 	// If more error codes are found, add them to the given error type.

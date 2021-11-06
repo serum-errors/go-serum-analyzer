@@ -9,22 +9,36 @@ import (
 
 type (
 	taintSpreadResult struct {
-		expressions     []ast.Expr   // expressions that represent the taint, or nil
-		identOutOfScope []*ast.Ident // every used ident that was not defined in functio scope, or nil
+		expressions        []ast.Expr             // expressions that represent the taint, or nil
+		destructAssignment []*taintSpreadDestruct // taint originating from destructirung assignments, or nil
+		identOutOfScope    []*ast.Ident           // every used ident that was not defined in functio scope, or nil
 	}
 
 	taintSpread struct {
-		pass     *analysis.Pass
-		function *funcDefinition
+		pass          *analysis.Pass
+		function      *funcDefinition
+		immutableType bool
 
 		result *taintSpreadResult
 
-		visited map[ast.Object]struct{}
+		visited map[*ast.Object]struct{}
+	}
+
+	taintSpreadDestruct struct {
+		position int
+		target   *ast.Ident
+		source   ast.Expr
 	}
 )
 
 func taintSpreadForIdentOfImmutableType(pass *analysis.Pass, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
-	ts := taintSpread{pass, function, &taintSpreadResult{}, map[ast.Object]struct{}{}}
+	ts := taintSpread{pass, function, true, &taintSpreadResult{}, map[*ast.Object]struct{}{}}
+	ts.findSpread(ident)
+	return ts.result
+}
+
+func taintSpreadForIdentAllowLeak(pass *analysis.Pass, visited map[*ast.Object]struct{}, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
+	ts := taintSpread{pass, function, false, &taintSpreadResult{}, visited}
 	ts.findSpread(ident)
 	return ts.result
 }
@@ -35,11 +49,16 @@ func (ts *taintSpread) findSpread(ident *ast.Ident) {
 		return
 	}
 
-	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endless loop)
-	if _, ok := ts.visited[*ident.Obj]; ok {
+	// Cannot spread taint for nil identifier.
+	if ident.Name == "nil" {
 		return
 	}
-	ts.visited[*ident.Obj] = struct{}{}
+
+	// Mark ident as visited to avoid revisiting it again (possibly resulting in an endless loop)
+	if _, ok := ts.visited[ident.Obj]; ok {
+		return
+	}
+	ts.visited[ident.Obj] = struct{}{}
 
 	// Check if there can be an error codes extracted from the ident declaration statement if there is any.
 	initValue := ts.findValueForIdentInValueSpec(ident)
@@ -68,7 +87,7 @@ func (ts *taintSpread) findSpread(ident *ast.Ident) {
 			}
 
 			if len(assignment.Lhs) != len(assignment.Rhs) {
-				ts.reportDestructuringAssignment(assignment.Rhs[0], ident)
+				ts.result.destructAssignment = append(ts.result.destructAssignment, &taintSpreadDestruct{i, lhsEntry, assignment.Rhs[0]})
 			} else {
 				ts.processAssignedExpr(assignment.Rhs[i])
 			}
@@ -102,20 +121,16 @@ func (ts *taintSpread) findValueForIdentInValueSpec(ident *ast.Ident) ast.Expr {
 		return nil
 	}
 
-	if len(spec.Values) < len(spec.Names) {
-		ts.reportDestructuringAssignment(spec.Values[0], ident)
-		return nil
-	}
-
 	for i, specIdent := range spec.Names {
 		if ident.Obj == specIdent.Obj {
-			return spec.Values[i]
+			if len(spec.Values) == len(spec.Names) {
+				return spec.Values[i]
+			} else {
+				ts.result.destructAssignment = append(ts.result.destructAssignment, &taintSpreadDestruct{i, specIdent, spec.Values[0]})
+				return nil
+			}
 		}
 	}
 
 	return nil
-}
-
-func (ts *taintSpread) reportDestructuringAssignment(pos analysis.Range, ident *ast.Ident) {
-	ts.pass.ReportRangef(pos, "unsupported: assigning result of function call to variable %q is not allowed", ident.Name)
 }

@@ -22,7 +22,7 @@ func extractErrorCodesFromAffector(pass *analysis.Pass, lookup *funcLookup, func
 		return result
 	}
 
-	errorType, err := getErrorTypeForError(pass, lookup, pass.TypesInfo.Types[affector].Type)
+	errorType, err := getErrorTypeForError(pass, pass.TypesInfo.Types[affector].Type)
 	if err != nil || errorType == nil {
 		pass.ReportRangef(affector, "expression is not a valid error: error types must return constant error codes or a single field")
 	}
