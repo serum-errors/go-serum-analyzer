@@ -224,7 +224,7 @@ func InvalidErrorFromLambdaParam() error { // want InvalidErrorFromLambdaParam:"
 func InvalidErrorFromLambdaParam2() error { // want InvalidErrorFromLambdaParam2:"ErrorCodes"
 	var err error
 	func(e error) {
-		err = e // want "invalid"
+		err = e // want "returned error may not be a parameter, receiver or global variable"
 	}(fmt.Errorf("error without code"))
 	return err
 }

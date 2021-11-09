@@ -22,6 +22,7 @@ type (
 		result *taintSpreadResult
 
 		visited map[*ast.Object]struct{}
+		blocked map[*ast.Object]struct{}
 	}
 
 	taintSpreadDestruct struct {
@@ -31,20 +32,32 @@ type (
 	}
 )
 
+func newTaintSpread(pass *analysis.Pass, function *funcDefinition, immutableType bool, visited map[*ast.Object]struct{}) *taintSpread {
+	return &taintSpread{
+		pass,
+		function,
+		immutableType,
+		&taintSpreadResult{},
+		visited,
+		map[*ast.Object]struct{}{},
+	}
+}
+
 func taintSpreadForIdentOfImmutableType(pass *analysis.Pass, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
-	ts := taintSpread{pass, function, true, &taintSpreadResult{}, map[*ast.Object]struct{}{}}
+	ts := newTaintSpread(pass, function, true, map[*ast.Object]struct{}{})
 	ts.findSpread(ident)
 	return ts.result
 }
 
 func taintSpreadForIdentAllowLeak(pass *analysis.Pass, visited map[*ast.Object]struct{}, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
-	ts := taintSpread{pass, function, false, &taintSpreadResult{}, visited}
+	ts := newTaintSpread(pass, function, false, visited)
 	ts.findSpread(ident)
 	return ts.result
 }
 
 func (ts *taintSpread) findSpread(ident *ast.Ident) {
-	if isIdentOriginOutsideFunctionScope(ts.function, ident) {
+	_, blocked := ts.blocked[ident.Obj]
+	if blocked || isIdentOriginOutsideFunctionScope(ts.function, ident) {
 		ts.result.identOutOfScope = append(ts.result.identOutOfScope, ident)
 		return
 	}
@@ -67,7 +80,13 @@ func (ts *taintSpread) findSpread(ident *ast.Ident) {
 	}
 
 	ast.Inspect(ts.function.body(), func(node ast.Node) bool {
-		// n.b., do *not* filter out *`ast.FuncLit`: statements inside closures can assign things!
+		funcLit, ok := node.(*ast.FuncLit)
+		if ok {
+			ts.blockParams(funcLit)
+			// Do *not* filter out `*ast.FuncLit`: statements inside closures can assign things!
+			return true
+		}
+
 		assignment, ok := node.(*ast.AssignStmt)
 		if !ok {
 			return true
@@ -133,4 +152,20 @@ func (ts *taintSpread) findValueForIdentInValueSpec(ident *ast.Ident) ast.Expr {
 	}
 
 	return nil
+}
+
+// blockParams adds all params of the given function literal to a set of blocked identifiers.
+//
+// This is done, so no parameter of a function literal can be a source expression from taint spread.
+// We cannot track what parameters could be given to a function literal, so we don't allow parameters.
+func (ts *taintSpread) blockParams(funcLit *ast.FuncLit) {
+	for _, field := range funcLit.Type.Params.List {
+		for _, ident := range field.Names {
+			if ident.Obj == nil {
+				panic("should be unreachable: identifiers of parameters should always have an ast object attached.")
+			}
+
+			ts.blocked[ident.Obj] = struct{}{}
+		}
+	}
 }
