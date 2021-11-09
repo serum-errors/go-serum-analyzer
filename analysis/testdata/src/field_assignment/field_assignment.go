@@ -32,6 +32,8 @@ func ConstantExpressionAssignments() error { // want ConstantExpressionAssignmen
 		const code1 = "other"
 		const code2 = "-3"
 		err.TheCode = code1 + code2 + errorSuffix
+	case true:
+		err.TheCode = "" // Empty string is allowed, but does not count as error code.
 	}
 	return &err
 }

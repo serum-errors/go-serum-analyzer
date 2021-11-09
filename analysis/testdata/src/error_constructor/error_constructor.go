@@ -151,6 +151,11 @@ func InvalidUseOfCodeParam2(code string) error { // want InvalidUseOfCodeParam2:
 	return lambda(code)
 }
 
+// Errors: none
+func EmptyStringConstruct() error { // want EmptyStringConstruct:"ErrorCodes:"
+	return NewError2("")
+}
+
 type ConstructorInterface interface {
 	// Errors:
 	//

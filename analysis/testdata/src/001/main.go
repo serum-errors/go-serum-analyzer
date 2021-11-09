@@ -76,7 +76,7 @@ func Six(flip bool) error { // want Six:"ErrorCodes: hello-error zonk-error"
 //
 //    - hello-error -- is always returned.
 func Seven() error { // want Seven:"ErrorCodes: hello-error"
-	uff := &Error{}
+	uff := &Error{} // Error code is initialised to empty string, which is allowed.
 	uff.TheCode = "hello-error"
 	var err error
 	err = uff

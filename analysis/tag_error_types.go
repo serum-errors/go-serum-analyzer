@@ -197,14 +197,8 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 			if returnType.Value != nil {
 				value, err := getErrorCodeFromConstant(returnType.Value)
 				if err == nil {
-					if value == "" {
-						return false // Ignore empty string result of Code method.
-					}
-
-					if isErrorCodeValid(value) {
+					if value != "" { // Ignore empty string result of Code method.
 						constants.Add(value)
-					} else {
-						pass.ReportRangef(node, "error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 					}
 				} else {
 					pass.ReportRangef(node, "%v", err)

@@ -52,25 +52,32 @@ func extractFieldErrorCode(pass *analysis.Pass, expr ast.Expr, function *funcDef
 		panic("cannot extract field error code without field definition")
 	}
 
-	fieldExpr := findFieldInitExpression(expr, errorType.Field)
+	fieldExpr := findFieldInitExpression(pass, expr, errorType.Field)
 	if fieldExpr == nil {
-		pass.ReportRangef(expr, "could not find initialiser for error code field in contructor expression")
 		return "", false
 	}
 
 	return extractErrorCodeFromStringExpression(pass, function, fieldExpr)
 }
 
-func findFieldInitExpression(constructExpr ast.Expr, field *ErrorCodeField) ast.Expr {
+func findFieldInitExpression(pass *analysis.Pass, constructExpr ast.Expr, field *ErrorCodeField) ast.Expr {
 	switch expr := astutil.Unparen(constructExpr).(type) {
 	case *ast.CompositeLit:
+		if len(expr.Elts) == 0 {
+			// If no elements are present, the code is being initialised to empty string.
+			// This is always a valid value, but never reported.
+			return nil
+		}
+
 		// Key-based composite literal:
 		// Use the field name to find the error code.
+		var isKeyBased bool
 		for _, element := range expr.Elts {
 			element, ok := element.(*ast.KeyValueExpr)
 			if !ok { // Either all elements are KeyValueExpr or none.
 				break
 			}
+			isKeyBased = true
 
 			ident, ok := element.Key.(*ast.Ident)
 			if !ok {
@@ -83,6 +90,11 @@ func findFieldInitExpression(constructExpr ast.Expr, field *ErrorCodeField) ast.
 			}
 		}
 
+		if isKeyBased {
+			// If the key is not present, the code is being initialised to empty string.
+			return nil
+		}
+
 		// Position-based composite literal:
 		// Use the field position to find the error code.
 		pos := field.Position
@@ -91,12 +103,13 @@ func findFieldInitExpression(constructExpr ast.Expr, field *ErrorCodeField) ast.
 		}
 	case *ast.UnaryExpr:
 		if expr.Op == token.AND {
-			return findFieldInitExpression(expr.X, field)
+			return findFieldInitExpression(pass, expr.X, field)
 		}
 	default:
 		logf("findFieldInitExpression did not yet handle: %#v\n", expr)
 	}
 
+	pass.ReportRangef(constructExpr, "could not find initialiser for error code field in contructor expression")
 	return nil
 }
 
@@ -121,11 +134,11 @@ func extractErrorCodeFromConstructorCall(pass *analysis.Pass, startingFunc *func
 func extractErrorCodeFromStringExpression(pass *analysis.Pass, function *funcDefinition, codeExpr ast.Expr) (string, bool) {
 	info, ok := pass.TypesInfo.Types[codeExpr]
 	if ok && info.Value != nil {
-		code, err := getValidErrorCodeFromConstant(info.Value)
+		code, err := getErrorCodeFromConstant(info.Value)
 		if err != nil {
 			pass.ReportRangef(codeExpr, "%v", err)
 		}
-		return code, err == nil
+		return code, err == nil && code != ""
 	}
 
 	// function might be an error constructor and codeExpr the error code parameter.
@@ -144,19 +157,6 @@ func extractErrorCodeFromStringExpression(pass *analysis.Pass, function *funcDef
 	return "", false
 }
 
-func getValidErrorCodeFromConstant(value constant.Value) (string, error) {
-	result, err := getErrorCodeFromConstant(value)
-	if err != nil {
-		return result, err
-	}
-
-	if !isErrorCodeValid(result) {
-		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
-	}
-
-	return result, nil
-}
-
 func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	if value.Kind() != constant.String {
 		// Should not be reachable, because we already checked the signature of Code() to return a string.
@@ -169,6 +169,10 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 	result, err := strconv.Unquote(result)
 	if err != nil {
 		return "", fmt.Errorf("problem unquoting string constant value: %v", err)
+	}
+
+	if result != "" && !isErrorCodeValid(result) {
+		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
 	}
 
 	return result, nil

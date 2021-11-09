@@ -64,7 +64,13 @@ func AllErrors() error { // want AllErrors:"ErrorCodes: combined-1-error combine
 	case true:
 		return &FieldError{someVariable} // want "error code has to be constant value or error code parameter"
 	case true:
-		return &FieldError{} // want "could not find initialiser for error code field in contructor expression"
+		return &FieldError{}
+	case true:
+		return &FieldError2{field3: "unrelated"}
+	case true:
+		return &FieldError{""}
+	case true:
+		return &FieldError2{field3: "unrelated", field1: ""}
 	case true:
 		return &FieldError{"badformat-"} // want "error code has invalid format: should match .*"
 	case true:
@@ -277,9 +283,42 @@ type NamedReturnError struct{}
 
 func (*NamedReturnError) Code() (code string) {
 	code = "named-return-error"
+	if false {
+		code = ""
+	}
 	return
 }
 func (*NamedReturnError) Error() (err string) {
 	err = "NamedReturnError"
+	return
+}
+
+type NamedReturnError2 struct {
+	TheCode string
+}
+
+func (e *NamedReturnError2) Code() (code string) {
+	code = e.TheCode
+	return
+}
+func (*NamedReturnError2) Error() (err string) {
+	err = "NamedReturnError2"
+	return
+}
+
+type NamedReturnError3 struct {
+	TheCode string
+}
+
+func (e *NamedReturnError3) Code() (code string) {
+	errorCode := "some-error"
+	code = e.TheCode
+	if false {
+		code = errorCode
+	}
+	return
+}
+func (*NamedReturnError3) Error() (err string) {
+	err = "NamedReturnError3"
 	return
 }
