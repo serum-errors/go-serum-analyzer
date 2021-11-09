@@ -279,7 +279,7 @@ func (e *EmptyStringError) Code() string {
 }
 func (*EmptyStringError) Error() string { return "empty-string-error" }
 
-type NamedReturnError struct{}
+type NamedReturnError struct{} // want NamedReturnError:`ErrorType{Field:<nil>, Codes:named-return-error}`
 
 func (*NamedReturnError) Code() (code string) {
 	code = "named-return-error"
@@ -293,7 +293,7 @@ func (*NamedReturnError) Error() (err string) {
 	return
 }
 
-type NamedReturnError2 struct {
+type NamedReturnError2 struct { // want NamedReturnError2:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
 
@@ -306,7 +306,7 @@ func (*NamedReturnError2) Error() (err string) {
 	return
 }
 
-type NamedReturnError3 struct {
+type NamedReturnError3 struct { // want NamedReturnError3:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:some-error}`
 	TheCode string
 }
 

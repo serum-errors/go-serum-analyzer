@@ -1,6 +1,9 @@
 package funcliteral
 
-import "func_literal/inner"
+import (
+	"fmt"
+	"func_literal/inner"
+)
 
 // Errors:
 //
@@ -208,6 +211,22 @@ func TwinAssignLambda() error { // want TwinAssignLambda:"ErrorCodes: f1-1-error
 
 func ReturnTwinLambda() (func() error, func() error) {
 	return nil, nil
+}
+
+// Errors: none
+func InvalidErrorFromLambdaParam() error { // want InvalidErrorFromLambdaParam:"ErrorCodes"
+	return func(e error) error {
+		return e // want "returned error may not be a parameter, global variable or other variables declared outside of the function body"
+	}(fmt.Errorf("error without code"))
+}
+
+// Errors: none
+func InvalidErrorFromLambdaParam2() error { // want InvalidErrorFromLambdaParam2:"ErrorCodes"
+	var err error
+	func(e error) {
+		err = e // want "invalid"
+	}(fmt.Errorf("error without code"))
+	return err
 }
 
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`

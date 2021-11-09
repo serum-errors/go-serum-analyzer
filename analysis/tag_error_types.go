@@ -162,6 +162,15 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 		(ok2 && types.Identical(type1, pointer2.Elem()))
 }
 
+type codeMethodAnalysis struct {
+	pass     *analysis.Pass
+	receiver *ast.Ident
+
+	// Output
+	codes          CodeSet
+	errorCodeField *ast.Ident
+}
+
 // analyseCodeMethod inspects the error type.
 //
 // If the Code() method returns a constant value:
@@ -175,56 +184,25 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 //         - Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
 func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
-	constants := Set()
-	var fieldName *ast.Ident
+	state := codeMethodAnalysis{pass, receiver, Set(), nil}
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
 			return false // We're not interested in return statements of nested function literals.
 		case *ast.ReturnStmt:
 			if len(node.Results) == 0 { // Return statement with named result.
-				// TODO: Handle named results
-				return false
-			} else if len(node.Results) != 1 {
+				state.analyseNamedReturn(funcDecl)
+			} else if len(node.Results) == 1 {
+				state.analyseReturnedExpression(node.Results[0])
+			} else {
 				panic("should be unreachable: we already know that the method returns a single value. Return statements that don't do so should lead to a compile time error.")
 			}
-
-			returnResult := astutil.Unparen(node.Results[0])
-
-			// If the return statement returns a constant string value:
-			// Check if it is a valid error code and if so add it to the error code constants.
-			returnType := pass.TypesInfo.Types[returnResult]
-			if returnType.Value != nil {
-				value, err := getErrorCodeFromConstant(returnType.Value)
-				if err == nil {
-					if value != "" { // Ignore empty string result of Code method.
-						constants.Add(value)
-					}
-				} else {
-					pass.ReportRangef(node, "%v", err)
-				}
-				return false
-			}
-
-			// Otherwise check if a single field is returned.
-			// Make sure that always the same field is returned and otherwise emit a diagnostic.
-			expression, ok := returnResult.(*ast.SelectorExpr)
-			if ok && receiver != nil {
-				ident, ok := astutil.Unparen(expression.X).(*ast.Ident)
-				if ok && ident.Obj == receiver.Obj {
-					if fieldName == nil {
-						fieldName = expression.Sel
-					} else if fieldName.Name != expression.Sel.Name {
-						pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, fieldName.Name)
-					}
-					return false
-				}
-			}
-
-			pass.ReportRangef(node, "function %q should always return a string constant or a single field", funcDecl.Name.Name)
 		}
 		return true
 	})
+
+	fieldName := state.errorCodeField
+	constants := state.codes
 
 	var field *ErrorCodeField
 	if fieldName != nil {
@@ -244,6 +222,71 @@ func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.Fu
 	}
 
 	return &ErrorType{Codes: constants.Slice(), Field: field}
+}
+
+func (state *codeMethodAnalysis) analyseReturnedExpression(node ast.Expr) {
+	pass := state.pass
+	returnResult := astutil.Unparen(node)
+
+	// If the return statement returns a constant string value:
+	// Check if it is a valid error code and if so add it to the error code constants.
+	returnType := pass.TypesInfo.Types[returnResult]
+	if returnType.Value != nil {
+		value, err := getErrorCodeFromConstant(returnType.Value)
+		if err == nil {
+			if value != "" { // Ignore empty string result of Code method.
+				state.codes.Add(value)
+			}
+		} else {
+			pass.ReportRangef(node, "%v", err)
+		}
+		return
+	}
+
+	// Otherwise check if a single field is returned.
+	// Make sure that always the same field is returned and otherwise emit a diagnostic.
+	expression, ok := returnResult.(*ast.SelectorExpr)
+	if ok && state.receiver != nil {
+		ident, ok := astutil.Unparen(expression.X).(*ast.Ident)
+		if ok && ident.Obj == state.receiver.Obj {
+			if state.errorCodeField == nil {
+				state.errorCodeField = expression.Sel
+			} else if state.errorCodeField.Name != expression.Sel.Name {
+				pass.ReportRangef(node, "only single field allowed: cannot return field %q because field %q was returned previously", expression.Sel.Name, state.errorCodeField.Name)
+			}
+			return
+		}
+	}
+
+	pass.ReportRangef(node, `function "Code" should always return a string constant or a single field`)
+}
+
+func (state *codeMethodAnalysis) analyseNamedReturn(funcDecl *ast.FuncDecl) {
+	pass := state.pass
+
+	if funcDecl.Type.Results == nil || len(funcDecl.Type.Results.List) != 1 {
+		panic("should be unreachable: we already know that the method returns a single value.")
+	}
+
+	returnField := funcDecl.Type.Results.List[0]
+	if len(returnField.Names) != 1 {
+		panic("should be unreachable: we already know that the method returns a single named value. (Encountered empty return, so returned value must be named.)")
+	}
+
+	returnIdent := returnField.Names[0]
+	taintResult := taintSpreadForIdentOfImmutableType(state.pass, returnIdent, &funcDefinition{funcDecl, nil})
+
+	for _, badIdent := range taintResult.identOutOfScope {
+		pass.ReportRangef(badIdent, "error code variable may not be a parameter, receiver or global variable")
+	}
+
+	for _, destruct := range taintResult.destructAssignment {
+		pass.ReportRangef(destruct.source, "unsupported: assigning result of function call to variable %q is not allowed", destruct.target.Name)
+	}
+
+	for _, expr := range taintResult.expressions {
+		state.analyseReturnedExpression(expr)
+	}
 }
 
 // getFieldPosition gets the position of the given field in the error struct.
