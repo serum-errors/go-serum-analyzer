@@ -19,7 +19,13 @@ var logf = fmt.Printf
 
 // var logf = func(_ string, _ ...interface{}) {}
 
-var VerifyAnalyzer = &analysis.Analyzer{
+var cliArguments = struct{ requireErrorCodes bool }{}
+
+func init() {
+	Analyzer.Flags.BoolVar(&cliArguments.requireErrorCodes, "strict", false, "if this flag is set, exported error returning functions are required to declare error codes")
+}
+
+var Analyzer = &analysis.Analyzer{
 	Name:     "reeverify",
 	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
@@ -309,7 +315,7 @@ func findClaimedErrorCodes(pass *analysis.Pass, funcsToAnalyse []*ast.FuncDecl) 
 
 			// Warn directly about any functions that are exported if they return errors,
 			// but don't declare error codes in their docs.
-			if funcDecl.Name.IsExported() {
+			if cliArguments.requireErrorCodes && funcDecl.Name.IsExported() {
 				pass.Reportf(funcDecl.Pos(), "function %q is exported, but does not declare any error codes", funcDecl.Name.Name)
 			}
 		} else {
