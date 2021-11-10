@@ -196,6 +196,48 @@ func checkIfExprIsErrorCodeParam(pass *analysis.Pass, function *funcDefinition, 
 	}
 }
 
+// ectractErrorCodesFromConstructor checks if the given function is an error constructor
+// and if the error code parameter is used correctly.
+//
+// ectractErrorCodesFromConstructor returns all error codes that were assigned to the error code parameter.
+//
+// Error code parameters may only be assigned constant strings and local variables and
+// pointers to them or assigned local variable may not be leaked.
+func ectractErrorCodesFromConstructor(c *context, function *funcDefinition) CodeSet {
+	pass := c.pass
+	result := Set()
+
+	var fact ErrorConstructor
+	if !importErrorConstructorFact(pass, function, &fact) {
+		return result
+	}
+
+	paramIdent := getParamIdent(function.Type(), fact.CodeParamPosition)
+	if paramIdent == nil {
+		logf("%v invalid fact: %v\n", pass.Fset.Position(function.node().Pos()), fact)
+		panic("should be unreachable: error constructor fact points to parameter that does not exist")
+	}
+
+	taintResult := taintSpreadForParamIdentOfImmutableType(pass, paramIdent, function)
+
+	for _, badIdent := range taintResult.identOutOfScope {
+		pass.ReportRangef(badIdent, "error code parameter may not be assigned an other parameter, receiver or global variable")
+	}
+
+	for _, destruct := range taintResult.destructAssignment {
+		pass.ReportRangef(destruct.source, "unsupported: assigning result of function call to error code parameter %q is not allowed", destruct.target.Name)
+	}
+
+	for _, expr := range taintResult.expressions {
+		code, ok := extractErrorCodeFromStringExpression(pass, function, expr)
+		if ok {
+			result.Add(code)
+		}
+	}
+
+	return result
+}
+
 // importErrorConstructorFact tries to import the ErrorConstructor fact for the given function.
 func importErrorConstructorFact(pass *analysis.Pass, function *funcDefinition, fact *ErrorConstructor) bool {
 	if function == nil || function.funcDecl == nil {
@@ -230,4 +272,32 @@ func getParamPosition(funcType *ast.FuncType, param *ast.Ident) int {
 	}
 
 	return -1
+}
+
+// getParamIdent finds the ident of the given parameter position in the given function.
+// Returns nil if the parameter was not found.
+func getParamIdent(funcType *ast.FuncType, paramPosition int) *ast.Ident {
+	if paramPosition < 0 {
+		return nil
+	}
+
+	position := 0
+	for _, paramGroup := range funcType.Params.List {
+		if len(paramGroup.Names) == 0 {
+			if position == paramPosition {
+				return nil
+			}
+			position++
+			continue
+		}
+
+		for _, paramDefinition := range paramGroup.Names {
+			if position == paramPosition {
+				return paramDefinition
+			}
+			position++
+		}
+	}
+
+	return nil
 }

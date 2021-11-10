@@ -156,6 +156,33 @@ func EmptyStringConstruct() error { // want EmptyStringConstruct:"ErrorCodes:"
 	return NewError2("")
 }
 
+// Errors:
+//
+//    - param: code -- error code parameter
+//    - some-error  -- assigned to error code parameter
+//    - other-error  -- indirectly assigned to error code parameter
+func AssignToParam(_ int, other, code string) error { // want AssignToParam:"ErrorConstructor: {CodeParamPosition:2}" AssignToParam:"ErrorCodes: other-error some-error"
+	var otherError string
+	switch {
+	case true:
+		code = "" // allowed
+	case true:
+		code = "some-error" //allowed
+	case true:
+		code = other // want "error code parameter may not be assigned an other parameter, receiver or global variable"
+	case true:
+		code = "-invalid" // want "error code has invalid format: should match (.*)"
+	case true:
+		const constant = "other-error"
+		otherError = constant
+	case true:
+		code = otherError
+	case true:
+		otherError = "-invalid" // want "error code has invalid format: should match (.*)"
+	}
+	return NewError2(code)
+}
+
 type ConstructorInterface interface {
 	// Errors:
 	//

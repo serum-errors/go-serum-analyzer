@@ -440,6 +440,9 @@ func findErrorCodesInFunc(c *context, function *funcDefinition) CodeSet {
 	result := Set()
 	visitedIdents := map[*ast.Object]struct{}{}
 
+	paramCodes := ectractErrorCodesFromConstructor(c, function)
+	result = Union(result, paramCodes)
+
 	ast.Inspect(function.body(), func(node ast.Node) bool {
 		switch stmt := node.(type) {
 		case *ast.FuncLit:

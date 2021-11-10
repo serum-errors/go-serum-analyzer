@@ -18,6 +18,7 @@ type (
 		pass          *analysis.Pass
 		function      *funcDefinition
 		immutableType bool
+		paramIdent    *ast.Object
 
 		result *taintSpreadResult
 
@@ -34,17 +35,26 @@ type (
 
 func newTaintSpread(pass *analysis.Pass, function *funcDefinition, immutableType bool, visited map[*ast.Object]struct{}) *taintSpread {
 	return &taintSpread{
-		pass,
-		function,
-		immutableType,
-		&taintSpreadResult{},
-		visited,
-		map[*ast.Object]struct{}{},
+		pass:          pass,
+		function:      function,
+		immutableType: immutableType,
+
+		result: &taintSpreadResult{},
+
+		visited: visited,
+		blocked: map[*ast.Object]struct{}{},
 	}
 }
 
 func taintSpreadForIdentOfImmutableType(pass *analysis.Pass, visited map[*ast.Object]struct{}, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
 	ts := newTaintSpread(pass, function, true, visited)
+	ts.findSpread(ident)
+	return ts.result
+}
+
+func taintSpreadForParamIdentOfImmutableType(pass *analysis.Pass, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
+	ts := newTaintSpread(pass, function, true, map[*ast.Object]struct{}{})
+	ts.paramIdent = ident.Obj
 	ts.findSpread(ident)
 	return ts.result
 }
@@ -58,8 +68,10 @@ func taintSpreadForIdentAllowLeak(pass *analysis.Pass, visited map[*ast.Object]s
 func (ts *taintSpread) findSpread(ident *ast.Ident) {
 	_, blocked := ts.blocked[ident.Obj]
 	if blocked || isIdentOriginOutsideFunctionScope(ts.function, ident) {
-		ts.result.identOutOfScope = append(ts.result.identOutOfScope, ident)
-		return
+		if ts.paramIdent == nil || ts.paramIdent != ident.Obj {
+			ts.result.identOutOfScope = append(ts.result.identOutOfScope, ident)
+			return
+		}
 	}
 
 	// Cannot spread taint for nil identifier.
