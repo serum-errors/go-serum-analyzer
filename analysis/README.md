@@ -1,5 +1,7 @@
 # Error Code Analysis
 
+## Install and Run Analyser
+
 The analyser in this package checks:
 
 * if error returning functions declare possible error codes.
@@ -10,6 +12,14 @@ How to run the analyser as stand-alone tool:
 * Installing reeverify: `go install ./cmd/reeverify`
 * Change Directory to Target Project: `cd <target-path>`
 * Execute Analyser: `reeverify <package>`
+
+## Command Line Options
+
+### -strict
+
+When set: requires functions to declare error codes. Only functions that return an error and that are exported are required to declare error codes. (See [Declaring and Returning Errors](#declaring-and-returning-errors))
+
+When using the analyser in an IDE, we recommend that the **-strict** flag is generally turned on.
 
 ## About Examples
 
