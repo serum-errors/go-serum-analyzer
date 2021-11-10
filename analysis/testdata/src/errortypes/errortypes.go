@@ -322,3 +322,49 @@ func (*NamedReturnError3) Error() (err string) {
 	err = "NamedReturnError3"
 	return
 }
+
+type NamedReturnError4 struct { // want NamedReturnError4:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
+	TheCode string
+}
+
+// Two return statements should only emit 1 error message
+func (e *NamedReturnError4) Code() (code string) {
+	code = e.TheCode
+	if false {
+		code = "-invalid-error" // want "error code has invalid format: should match (.*)"
+		return
+	}
+	return
+}
+func (*NamedReturnError4) Error() string { return "NamedReturnError4" }
+
+type ReturnLocalVarError1 struct { // want ReturnLocalVarError1:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
+	TheCode string
+}
+
+func (e *ReturnLocalVarError1) Code() string {
+	code := e.TheCode
+	return code
+}
+func (*ReturnLocalVarError1) Error() string { return "ReturnLocalVarError" }
+
+type ReturnLocalVarError2 struct { // want ReturnLocalVarError2:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:other-error some-error}`
+	TheCode string
+}
+
+func (e *ReturnLocalVarError2) Code() string {
+	code := e.TheCode
+	other := "other-error"
+	var code2 string
+	if false {
+		code2 = code
+		return code2
+	} else {
+		code3 := "some-error"
+		if code == "extra-error" {
+			code3 = other
+		}
+		return code3
+	}
+}
+func (*ReturnLocalVarError2) Error() string { return "ReturnLocalVarError" }

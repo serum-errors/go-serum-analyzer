@@ -164,7 +164,9 @@ func errorTypesSubset(type1, type2 types.Type) bool {
 
 type codeMethodAnalysis struct {
 	pass     *analysis.Pass
+	funcDecl *ast.FuncDecl
 	receiver *ast.Ident
+	visited  map[*ast.Object]struct{}
 
 	// Output
 	codes          CodeSet
@@ -184,14 +186,22 @@ type codeMethodAnalysis struct {
 //         - Identifier needed for creation with named constructor and tracking assignments to the field
 // All other return statements are marked as invalid by emitting diagnostics.
 func analyseCodeMethod(pass *analysis.Pass, spec *ast.TypeSpec, funcDecl *ast.FuncDecl, receiver *ast.Ident) *ErrorType {
-	state := codeMethodAnalysis{pass, receiver, Set(), nil}
+	state := codeMethodAnalysis{
+		pass:           pass,
+		funcDecl:       funcDecl,
+		receiver:       receiver,
+		visited:        map[*ast.Object]struct{}{},
+		codes:          Set(),
+		errorCodeField: nil,
+	}
+
 	ast.Inspect(funcDecl, func(node ast.Node) bool {
 		switch node := node.(type) {
 		case *ast.FuncLit:
 			return false // We're not interested in return statements of nested function literals.
 		case *ast.ReturnStmt:
 			if len(node.Results) == 0 { // Return statement with named result.
-				state.analyseNamedReturn(funcDecl)
+				state.analyseNamedReturn()
 			} else if len(node.Results) == 1 {
 				state.analyseReturnedExpression(node.Results[0])
 			} else {
@@ -258,12 +268,19 @@ func (state *codeMethodAnalysis) analyseReturnedExpression(node ast.Expr) {
 		}
 	}
 
-	pass.ReportRangef(node, `function "Code" should always return a string constant or a single field`)
+	// If an ident is returned: analyse the ident taint.
+	// This also checks, if the ident is allowed to be returned. (i.e. that it is local)
+	returnIdent, ok := returnResult.(*ast.Ident)
+	if ok {
+		state.analyseReturnedIdentTaint(returnIdent)
+		return
+	}
+
+	pass.ReportRangef(node, `function %q should always return a string constant or a single field`, state.funcDecl.Name.Name)
 }
 
-func (state *codeMethodAnalysis) analyseNamedReturn(funcDecl *ast.FuncDecl) {
-	pass := state.pass
-
+func (state *codeMethodAnalysis) analyseNamedReturn() {
+	funcDecl := state.funcDecl
 	if funcDecl.Type.Results == nil || len(funcDecl.Type.Results.List) != 1 {
 		panic("should be unreachable: we already know that the method returns a single value.")
 	}
@@ -274,7 +291,12 @@ func (state *codeMethodAnalysis) analyseNamedReturn(funcDecl *ast.FuncDecl) {
 	}
 
 	returnIdent := returnField.Names[0]
-	taintResult := taintSpreadForIdentOfImmutableType(state.pass, returnIdent, &funcDefinition{funcDecl, nil})
+	state.analyseReturnedIdentTaint(returnIdent)
+}
+
+func (state *codeMethodAnalysis) analyseReturnedIdentTaint(ident *ast.Ident) {
+	pass := state.pass
+	taintResult := taintSpreadForIdentOfImmutableType(state.pass, state.visited, ident, &funcDefinition{state.funcDecl, nil})
 
 	for _, badIdent := range taintResult.identOutOfScope {
 		pass.ReportRangef(badIdent, "error code variable may not be a parameter, receiver or global variable")

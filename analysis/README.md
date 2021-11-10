@@ -196,7 +196,7 @@ For the `Error` method, there are no limitations to how it may be implemented. W
 
 The `Code` method is used to get the error code from an error type instance. For the analysis tool to be able to statically track error codes, the `Code` method has to follow some conventions:
 
-* return a constant string, or
+* return a constant string
   * Multiple different constant strings may be returned.
   * The returned strings have to be error codes of a valid format. (i.e. has to match `^[a-zA-Z][a-zA-Z0-9\-]*[a-zA-Z0-9]$` or `^[a-zA-Z]$`)
   * Empty strings are allowed, but not considered error codes.
@@ -204,6 +204,12 @@ The `Code` method is used to get the error code from an error type instance. For
   * If a field is returned multiple times, always the same field has to be returned.
   * We call this field the **error code field**.
   * When constructing an error, this field has to be set to a constant string.
+* return a local string variable
+  * The only values that are allowed to be assigned to the returned variable are:
+    * constant strings
+    * fields
+    * other local variables
+  * Those values have to follow the same rules as described above for returned values.
 
 There may be a mix of returning the error code field and constants inside of one `Code` method.
 

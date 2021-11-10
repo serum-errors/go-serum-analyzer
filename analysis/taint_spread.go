@@ -43,8 +43,8 @@ func newTaintSpread(pass *analysis.Pass, function *funcDefinition, immutableType
 	}
 }
 
-func taintSpreadForIdentOfImmutableType(pass *analysis.Pass, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
-	ts := newTaintSpread(pass, function, true, map[*ast.Object]struct{}{})
+func taintSpreadForIdentOfImmutableType(pass *analysis.Pass, visited map[*ast.Object]struct{}, ident *ast.Ident, function *funcDefinition) *taintSpreadResult {
+	ts := newTaintSpread(pass, function, true, visited)
 	ts.findSpread(ident)
 	return ts.result
 }

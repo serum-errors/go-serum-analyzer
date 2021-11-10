@@ -647,7 +647,7 @@ func findErrorCodesFromFunctionCall(c *context, startingFunc *funcDefinition, ca
 func findErrorCodesFromAllAssignedLambdas(c *context, ident *ast.Ident, function *funcDefinition) CodeSet {
 	pass := c.pass
 
-	taintResult := taintSpreadForIdentOfImmutableType(pass, ident, function)
+	taintResult := taintSpreadForIdentOfImmutableType(pass, map[*ast.Object]struct{}{}, ident, function)
 
 	for _, badIdent := range taintResult.identOutOfScope {
 		if function.funcDecl != nil { // expression is inside a function
