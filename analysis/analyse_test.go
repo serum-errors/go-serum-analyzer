@@ -9,19 +9,22 @@ import (
 func TestVerifyAnalyzer(t *testing.T) {
 	Analyzer.Flags.Set("strict", "true")
 	dir := analysistest.TestData()
-	analysistest.Run(t, dir, Analyzer, "001")
-	analysistest.Run(t, dir, Analyzer, "docformat")
-	analysistest.Run(t, dir, Analyzer, "dotimport/inner1", "dotimport")
-	analysistest.Run(t, dir, Analyzer, "error_constructor")
-	analysistest.Run(t, dir, Analyzer, "errortypes")
-	analysistest.Run(t, dir, Analyzer, "examples")
-	analysistest.Run(t, dir, Analyzer, "field_assignment")
-	analysistest.Run(t, dir, Analyzer, "func_literal")
-	analysistest.Run(t, dir, Analyzer, "interfaces/inner1", "interfaces")
-	analysistest.Run(t, dir, Analyzer, "methods")
-	analysistest.Run(t, dir, Analyzer, "multifile")
-	analysistest.Run(t, dir, Analyzer, "multipackage/inner1", "multipackage")
-	analysistest.Run(t, dir, Analyzer, "recursion")
+	analysistest.Run(t, dir, Analyzer,
+		"001",
+		"annotation",
+		"docformat",
+		"dotimport/inner1", "dotimport",
+		"error_constructor",
+		"errortypes",
+		"examples",
+		"field_assignment",
+		"func_literal",
+		"interfaces/inner1", "interfaces",
+		"methods",
+		"multifile",
+		"multipackage/inner1", "multipackage",
+		"recursion",
+	)
 }
 
 func TestIsErrorCodeValid(t *testing.T) {
