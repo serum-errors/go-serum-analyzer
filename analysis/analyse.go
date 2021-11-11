@@ -69,9 +69,10 @@ func (e *ErrorConstructor) String() string {
 
 type (
 	context struct {
-		pass   *analysis.Pass
-		lookup *funcLookup
-		scc    scc.State
+		pass     *analysis.Pass
+		lookup   *funcLookup
+		scc      scc.State
+		comments ast.CommentMap
 	}
 
 	funcCodesMap map[*ast.FuncDecl]funcCodes
@@ -120,6 +121,7 @@ func (f *funcDefinition) Type() *ast.FuncType {
 
 func runVerify(pass *analysis.Pass) (interface{}, error) {
 	lookup := collectFunctions(pass)
+	comments := createCommentMap(pass)
 
 	findAndTagErrorTypes(pass, lookup)
 
@@ -139,7 +141,7 @@ func runVerify(pass *analysis.Pass) (interface{}, error) {
 	// When we reach other function calls that declare their errors, that's good enough info (assuming they're also being checked for truthfulness).
 	// Anything else is trouble.
 	scc := scc.StartSCC() // SCC for handling of recursive functions
-	c := &context{pass, lookup, scc}
+	c := &context{pass, lookup, scc, comments}
 	for funcDecl, claims := range funcClaims {
 		foundCodes, ok := lookup.foundCodes[funcDecl]
 		if !ok {
@@ -200,6 +202,13 @@ func isErrorCodeValid(code string) bool {
 	return true
 }
 
+func checkErrorCodeValid(code string) error {
+	if !isErrorCodeValid(code) {
+		return fmt.Errorf("should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+	}
+	return nil
+}
+
 // isMethod checks if funcDecl is a method by looking if it has a single receiver.
 func isMethod(funcDecl *ast.FuncDecl) bool {
 	return funcDecl != nil && funcDecl.Recv != nil && len(funcDecl.Recv.List) == 1
@@ -230,6 +239,20 @@ func getUnderlyingType(typ types.Type) types.Type {
 	} else {
 		return named.Underlying()
 	}
+}
+
+// createCommentMap creates a map for fast access to all comments of any node in the package.
+func createCommentMap(pass *analysis.Pass) ast.CommentMap {
+	comments := make(ast.CommentMap)
+
+	for _, file := range pass.Files {
+		fileComments := ast.NewCommentMap(pass.Fset, file, file.Comments)
+		for node, comment := range fileComments {
+			comments[node] = comment
+		}
+	}
+
+	return comments
 }
 
 // findErrorDocs looks at the given comments and tries to find error code declarations.
@@ -449,47 +472,11 @@ func findErrorCodesInFunc(c *context, function *funcDefinition) CodeSet {
 	paramCodes := ectractErrorCodesFromConstructor(c, function)
 	result = Union(result, paramCodes)
 
-	ast.Inspect(function.body(), func(node ast.Node) bool {
-		switch stmt := node.(type) {
-		case *ast.FuncLit:
-			return false // We don't want to see return statements from in a nested function right now.
-		case *ast.ReturnStmt:
-			// stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
-			var resultExpression ast.Expr
-			if len(stmt.Results) == 0 {
-				resultTypes := function.Type().Results.List
-				if len(resultTypes) == 0 {
-					panic("should be unreachable: we already know that the function signature contains an error result.")
-				}
+	returnCodes := findErrorCodesInFunctionReturnStmts(c, visitedIdents, function)
+	result = Union(result, returnCodes)
 
-				resultIdents := resultTypes[len(resultTypes)-1].Names
-				if len(resultIdents) == 0 {
-					panic("should be unreachable: an empty return statement requires either empty result list or named results.")
-				}
-
-				resultExpression = resultIdents[len(resultIdents)-1]
-			} else {
-				resultExpression = stmt.Results[len(stmt.Results)-1]
-			}
-
-			// This can go a lot of ways:
-			// - You can have a plain `*ast.Ident` (aka returning a variable).
-			// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
-			// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
-			// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
-			// - This is probably not an exhaustive list...
-			if resultExpression != nil {
-				newCodes := findErrorCodesInExpression(c, visitedIdents, resultExpression, function)
-				result = Union(result, newCodes)
-			}
-
-			return false
-		}
-		return true
-	})
-
-	newCodes := findCodesAssignedToErrorCodeFields(pass, function, visitedIdents)
-	result = Union(result, newCodes)
+	assignedCodes := findCodesAssignedToErrorCodeFields(pass, function, visitedIdents)
+	result = Union(result, assignedCodes)
 
 	lookup.foundCodes[function.node()] = result
 
@@ -497,6 +484,28 @@ func findErrorCodesInFunc(c *context, function *funcDefinition) CodeSet {
 	if isComponentRoot {
 		return unifyAnalysisResultForComponent(lookup, component)
 	}
+
+	return result
+}
+
+// findErrorCodesInFunctionReturnStmts looks at all return statement of the given (error returning) function
+// and figures out which error codes may be returned by that statement.
+func findErrorCodesInFunctionReturnStmts(c *context, visitedIdents map[*ast.Object]struct{}, function *funcDefinition) CodeSet {
+	result := Set()
+
+	ast.Inspect(function.body(), func(node ast.Node) bool {
+		switch stmt := node.(type) {
+		case *ast.FuncLit:
+			return false // We don't want to see return statements from in a nested function right now.
+		case *ast.ReturnStmt:
+
+			returnCodes := findErrorCodesInReturnStmt(c, visitedIdents, stmt, function)
+			result = Union(result, returnCodes)
+
+			return false
+		}
+		return true
+	})
 
 	return result
 }
@@ -524,10 +533,45 @@ func unifyAnalysisResultForComponent(lookup *funcLookup, component scc.Component
 	return result
 }
 
+// findErrorCodesInReturnStmt finds all error codes that originate from the given return statement.
+//
+// If the return statement results list is empty (i.e. `return`), then the error codes are gathered from
+// the taint spread of the named return variable for the error.
+func findErrorCodesInReturnStmt(c *context, visitedIdents map[*ast.Object]struct{}, stmt *ast.ReturnStmt, function *funcDefinition) CodeSet {
+	// stmt.Results can also be nil, in which case you have to look back at vars in the func sig.
+	var resultExpression ast.Expr
+	if len(stmt.Results) == 0 {
+		resultTypes := function.Type().Results.List
+		if len(resultTypes) == 0 {
+			panic("should be unreachable: we already know that the function signature contains an error result.")
+		}
+
+		resultIdents := resultTypes[len(resultTypes)-1].Names
+		if len(resultIdents) == 0 {
+			panic("should be unreachable: an empty return statement requires either empty result list or named results.")
+		}
+
+		resultExpression = resultIdents[len(resultIdents)-1]
+	} else {
+		resultExpression = stmt.Results[len(stmt.Results)-1]
+	}
+
+	if resultExpression != nil {
+		return findErrorCodesInExpression(c, visitedIdents, resultExpression, function)
+	}
+	return nil
+}
+
 // findErrorCodesInExpression finds all error codes that originate from the given expression.
 func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Object]struct{}, expr ast.Expr, startingFunc *funcDefinition) CodeSet {
 	pass, lookup := c.pass, c.lookup
 
+	// This can go a lot of ways:
+	// - You can have a plain `*ast.Ident` (aka returning a variable).
+	// - You can have an `*ast.SelectorExpr` (returning a variable from in a structure).
+	// - You can have an `*ast.CallExpr` (aka returning the result of a function call).
+	// - You can have an `*ast.UnaryExpr` (probably about to be an '&' and then a structure literal, but could be other things too...).
+	// - This is probably not an exhaustive list...
 	switch expr := astutil.Unparen(expr).(type) {
 	case *ast.CallExpr:
 		return findErrorCodesInCallExpression(c, expr, startingFunc)

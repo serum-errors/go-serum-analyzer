@@ -171,8 +171,10 @@ func getErrorCodeFromConstant(value constant.Value) (string, error) {
 		return "", fmt.Errorf("problem unquoting string constant value: %v", err)
 	}
 
-	if result != "" && !isErrorCodeValid(result) {
-		return "", fmt.Errorf("error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+	if result != "" {
+		if err := checkErrorCodeValid(result); err != nil {
+			return "", fmt.Errorf("error code has invalid format: %v", err)
+		}
 	}
 
 	return result, nil

@@ -128,8 +128,8 @@ func (stateParsing) step(sm *findErrorDocsSM, line string) error {
 			}
 		}
 
-		if !isErrorCodeValid(code) {
-			return fmt.Errorf("declared error code has invalid format: should match [a-zA-Z][a-zA-Z0-9\\-]*[a-zA-Z0-9]")
+		if err := checkErrorCodeValid(code); err != nil {
+			return fmt.Errorf("declared error code has invalid format: %v", err)
 		}
 
 		if _, exists := sm.seen[code]; !exists {
