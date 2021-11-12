@@ -498,10 +498,19 @@ func findErrorCodesInFunctionReturnStmts(c *context, visitedIdents map[*ast.Obje
 		case *ast.FuncLit:
 			return false // We don't want to see return statements from in a nested function right now.
 		case *ast.ReturnStmt:
+			annotations := getReturnStmtAnnotations(c, stmt)
+			if annotations != nil && annotations.shouldOverwrite {
+				result = Union(result, annotations.overwrite)
+				return false
+			}
 
 			returnCodes := findErrorCodesInReturnStmt(c, visitedIdents, stmt, function)
-			result = Union(result, returnCodes)
+			if annotations != nil {
+				returnCodes = Difference(returnCodes, annotations.subCodes)
+				returnCodes = Union(returnCodes, annotations.addCodes)
+			}
 
+			result = Union(result, returnCodes)
 			return false
 		}
 		return true

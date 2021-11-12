@@ -22,7 +22,7 @@ type (
 // getReturnStmtAnnotations finds and returns annotations for the given return statement.
 //
 // An annotation:
-//   - is a comment directly above the return statement
+//   - is a comment above the return statement
 //   - starts with "Error Codes"
 //   - is unique (only one annotation per return statement)
 //
@@ -35,14 +35,19 @@ type (
 func getReturnStmtAnnotations(c *context, stmt *ast.ReturnStmt) *annotationReturnStmt {
 	pass := c.pass
 
-	comments, ok := c.comments[stmt]
-	if !ok || len(comments) == 0 {
+	commentGroups, ok := c.comments[stmt]
+	if !ok || len(commentGroups) == 0 {
 		return nil
 	}
 
 	var result *annotationReturnStmt
 
-	comment := comments[0].Text()
+	comments := make([]string, 0, len(commentGroups))
+	for _, group := range commentGroups {
+		comments = append(comments, group.Text())
+	}
+	comment := strings.Join(comments, "\n")
+
 	for _, line := range strings.Split(comment, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, annotationIndicatorReturnStmt) {
