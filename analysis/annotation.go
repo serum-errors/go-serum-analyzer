@@ -75,13 +75,13 @@ func getReturnStmtAnnotations(c *context, stmt *ast.ReturnStmt) *annotationRetur
 			if len(line) >= 2 && line[1] == '=' {
 				result.addCodes, err = extractCodesFromStringAnnotation(line[2:])
 			} else {
-				err = extractCodeModificationsFromStringAnnotation(result, line[1:])
+				err = extractCodeModificationsFromStringAnnotation(result, line)
 			}
 		case '-':
 			if len(line) >= 2 && line[1] == '=' {
 				result.subCodes, err = extractCodesFromStringAnnotation(line[2:])
 			} else {
-				err = extractCodeModificationsFromStringAnnotation(result, line[1:])
+				err = extractCodeModificationsFromStringAnnotation(result, line)
 			}
 		default:
 			err = fmt.Errorf("error in annotation: expected '=', '+=', '-=', '+code', or '-code' after '%s' indicator", annotationIndicatorReturnStmt)
@@ -100,6 +100,10 @@ func getReturnStmtAnnotations(c *context, stmt *ast.ReturnStmt) *annotationRetur
 func extractCodesFromStringAnnotation(annotation string) (CodeSet, error) {
 	result := Set()
 
+	if strings.TrimSpace(annotation) == "" {
+		return result, nil
+	}
+
 	for _, code := range strings.Split(annotation, ",") {
 		code = strings.TrimSpace(code)
 		if err := checkErrorCodeValid(code); err != nil {
@@ -116,9 +120,13 @@ func extractCodesFromStringAnnotation(annotation string) (CodeSet, error) {
 //
 // Codes that should be added have a '+' prefix, while codes that should be removed have a '-' prefix.
 func extractCodeModificationsFromStringAnnotation(result *annotationReturnStmt, annotation string) error {
-	for _, code := range strings.Split(annotation, ",") {
+	for _, code := range strings.Split(annotation, " ") {
 		code = strings.TrimSpace(code)
-		if len(code) == 0 || (code[0] != '+' && code[0] != '-') {
+		if len(code) == 0 {
+			continue
+		}
+
+		if code[0] != '+' && code[0] != '-' {
 			return fmt.Errorf("invalid error code in annotation: code has to start with '+' or '-'")
 		}
 
