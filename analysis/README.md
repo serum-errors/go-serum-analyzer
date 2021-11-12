@@ -348,6 +348,97 @@ Calls to functions of **other packages** entierly trust the declared error codes
 
 **Recursive calls** of functions set the error codes of all involved functions to the super set of error codes in those functions. See [testdata/src/recursion/recursion.go](testdata/src/recursion/recursion.go) for some examples.
 
+## Annotations
+
+Annotations can be used to overrule error code analysis.
+
+The following annotations are only valid for **return statements** and should usually be placed directly above an statement returning an error with error code.
+
+### Overwrite Codes Annotation
+
+Overwrite annotation allow overwriting the error code analysis with own error codes.
+
+```go
+// Errors:
+//
+//    - examples-error-overwritten -- error forced by annotation
+func Overwrite() error {
+    // Error Codes = examples-error-overwritten
+    return &Error{"examples-error-unknown"}
+}
+
+```
+
+In the example above, the analyser believes, that the returned error code is "examples-error-overwritten".
+Be aware, that the annotation does not change what is actually returned. In the example `Overwrite` would still return an error with code "examples-error-unknown".
+
+The following example shows how an overwrite annotation could be used in practice:
+
+```go
+// Errors:
+//
+//    - examples-error-one -- error forced by annotation
+//    - examples-error-two -- error forced by annotation
+func OverwriteMultiple(index int) error { // want OverwriteMultiple:"ErrorCodes: examples-error-one examples-error-two"
+    errors := []error{
+        nil,
+        &Error{"examples-error-one"},
+        &Error{"examples-error-two"},
+    }
+    // Error Codes = examples-error-one, examples-error-two
+    return errors[index]
+}
+```
+
+The anylser cannot figure out that the codes "examples-error-one" and "examples-error-two" are returned by itself. Using the overwrite annotation the analyser is informed which error codes to expect.
+
+Also note, that multiple comma-separated codes can be specified in the overwrite annotation.
+
+### Add/Remove Codes Annotation
+
+Add (resp. remove) annotations allow adding (removing) error codes to (from) the codes resulting from the analysis.
+
+Adding error codes is done with the annotation `// Error Codes += code1, code2, ...` and removing analogously with `// Error Codes -= code1, code2, ...`.
+
+```go
+// Errors:
+//
+//    - examples-error-two   --
+//    - examples-error-three --
+func SubtractCode() error {
+    switch err := MultipleCodes(); err.Code() {
+    case "examples-error-one":
+        HandleErrorOne(err)
+        return nil
+    default:
+        // Error Codes -= examples-error-one
+        return err
+    }
+}
+```
+
+The example above shows, how a remove annotation could be used to tell the analyser to ignore an error code that has already been handled.
+
+Additionally there's an annotation from that allows adding and removing codes in the same line:
+
+```go
+// Error Codes -examples-error-two -examples-error-three +examples-error-extra
+return err
+```
+
+In front of each error code is either a '+' or a '-', which indicates, if the error code should be added or removed.
+
+**Important:** Remove code annotations are currently not supported for error codes with origin from error code field assignments. For example:
+
+```go
+err := &Error{}
+err.TheCode = "assigned-error"
+// Error Codes -= assigned-error
+return err
+```
+
+In the example above the analyser would still consider "assigned-error" to be returned.
+
 ## Interfaces
 
 Error codes can be declared for interface methods.

@@ -602,7 +602,7 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Object]struct
 	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
 		return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 	default:
-		logf("findErrorCodesInExpression does not yet handle %#v\n", expr)
+		pass.ReportRangef(expr, "expression is not supported in error code analysis")
 		return nil
 	}
 }

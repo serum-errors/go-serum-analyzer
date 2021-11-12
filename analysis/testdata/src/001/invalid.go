@@ -122,3 +122,8 @@ func InvalidErrorFromLambda() error { // want InvalidErrorFromLambda:"ErrorCodes
 	}
 	return &Error{"some-error"}
 }
+
+// Errors: none
+func SliceAccess(errors []error, index int) error { // want SliceAccess:"ErrorCodes:"
+	return errors[index] // want "expression is not supported in error code analysis"
+}
