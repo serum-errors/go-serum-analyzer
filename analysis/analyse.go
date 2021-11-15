@@ -640,6 +640,14 @@ func findErrorCodesFromFunctionCall(c *context, startingFunc *funcDefinition, ca
 		return Union(result, fact.Codes)
 	}
 
+	// Get codes that originate from call expressions that are actually conversions to an error type.
+	if callExpr != nil && callee == nil {
+		conversionCodes := extractErrorCodesFromTypeConversion(pass, callExpr)
+		if len(conversionCodes) > 0 {
+			return Union(result, conversionCodes)
+		}
+	}
+
 	calledFuncDef := funcDefinition{nil, nil}
 
 	switch calledExpression := astutil.Unparen(calledFunction).(type) {
