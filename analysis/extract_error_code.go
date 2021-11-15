@@ -113,6 +113,21 @@ func findFieldInitExpression(pass *analysis.Pass, constructExpr ast.Expr, field 
 	return nil
 }
 
+// extractErrorCodesFromTypeConversion checks if the given call expression is a conversion to an error type and
+// if that's the case, returns the error codes originating from that conversion.
+func extractErrorCodesFromTypeConversion(pass *analysis.Pass, callExpr *ast.CallExpr) CodeSet {
+	funType := pass.TypesInfo.TypeOf(callExpr.Fun)
+	errorType, err := getErrorTypeForError(pass, funType)
+
+	if errorType == nil || err != nil {
+		return nil
+	}
+
+	return SliceToSet(errorType.Codes)
+}
+
+// extractErrorCodeFromConstructorCall checks if the given callee is an error constructor and
+// then extracts the error code from the correct call argument.
 func extractErrorCodeFromConstructorCall(pass *analysis.Pass, startingFunc *funcDefinition, reportRange analysis.Range, callee types.Object, callExpr *ast.CallExpr) (string, bool) {
 	var fact ErrorConstructor
 	if callee == nil || !pass.ImportObjectFact(callee, &fact) {

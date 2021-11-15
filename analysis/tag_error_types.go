@@ -114,7 +114,6 @@ func tagErrorType(pass *analysis.Pass, lookup *funcLookup, err types.Type, spec 
 func getErrorTypeForError(pass *analysis.Pass, err types.Type) (*ErrorType, error) {
 	namedErr := getNamedType(err)
 	if namedErr == nil {
-		logf("err type: %#v\n", err)
 		return nil, fmt.Errorf("passed invalid err type to getErrorTypeForError")
 	}
 
