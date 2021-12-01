@@ -3,7 +3,7 @@ package scc_test
 import (
 	"testing"
 
-	"github.com/warpfork/go-ree/analysis/scc"
+	"github.com/serum-errors/go-serum-analyzer/analysis/scc"
 )
 
 type test struct {

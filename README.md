@@ -1,243 +1,22 @@
-go-ree -- **R**e-**E**xamining **E**rrors
-=========================================
+go-serum-analyzer
+=================
 
-Error handling is a complex business.
-The complexity is high in any program;
-it also grows rapidly when programs are networked,
-and a user's action may have triggered errors from any one of a series of dependent programs...
-which may have been written in multiple languages, etc, etc.
+go-serum-analyzer is a static analysis tool for
+the use of [Serum](https://github.com/serum-errors/serum-spec) errors in Golang.
 
-`ree` is:
-1. a short language-agnostic spec for error tags -- and recommendations about how to compose them.
-2. a slightly bigger (but still short) language-agnostic spec for error serialization which should be reasonably useful from any program, and parsable and chainable by any program.
-3. a static analysis tool, for golang, to support you in writing code that follows the `ree` conventions.
+The analyzer verifies that Serum errors are propagated, handled, and documented accurately.
 
-This repo is concerned with golang code, and golang tooling,
-but the concepts and the error serialization form are language agnostic.
+Keep scrolling down for a [quick example](#quick-example), or,
+jump to the [USERGUIDE](USERGUIDE.md) for lots and lots of examples!
 
 
-Status
-------
+In Brief
+--------
 
-This repo contains both a spec about error values and their serializablity,
-and a static analysis tool you can use to make sure your program propagates error values,
-together with their "codes" (as described below by the spec) correctly.
-
-Both the spec and the static analysis tool are in **beta**.
-You can use them!  Please do!
-The authors are beginning to dogfood them too.
-
-See [README_recommendedUsage.md](README_recommendedUsage.md) for more information
-on how we suggest getting started.
-
-
-Tagged Errors: a Proposal
--------------------------
-
-The design is derived from a few concepts:
-
-- 0. Errors are Values.
-- 1. It is important to be able to handle errors programmatically, and exhaustively: for this we will need errors to have some kind of "code" or "tag".
-- 2. It is important for errors to be serializable, and deserializable.  For this reason, we will specify a minimal but standard structure.
-- 3. It is important for the error "code" to be textual, so that it can be serialized, and so that programmers can make them rich and unique (as opposed to ints, which would be prone to colision).
-
-This is all a fancy way of saying errors should have a string constant that says what kind of error they are.
-
-If you're buying in so far, let's also continue with a few more design concepts about how we should serialize errors.
-
-
-Serializable Rich Errors: a Proposal
--------------------------------------
-
-Continuing the list above:
-
-- 4. It is important for errors to describe themselves in a human-readable way: they should be able to store a freetext message that's reasonable prose to show to a user.
-- 5. It is useful for errors to be able to attach details: key-value freetext pairs are sufficient for this.
-- 6. It is too much to expect that string templating will be available in the same way in every language, so message text is free to repeat parts of the details entries.  (The message is for humans; the details entries are for machines.)
-- 7. It is too much to expect that anything at all can be standardized except codes.  For example, it is not reasonable to expect stack traces can be standardized, or even that they are always desirable.  If data such as this are present, they should be placed in a detail entry as freetext, like anything else -- not blessed.
-- 8. It is *not* advisable to use the concept of inheritance hierarchies for errors.  Pattern matching and re-tagging are better approaches for holistic reasons, and critically, are viable to reason about locally.
-
-These concepts bring us to a serial format, which wil be described in the [Schema](#schema) and [Serializing](#serializing) sections;
-a convention for printing human-readable messages, which will be described in the [Printing](#printing) section;
-and, ultimately, will even allow us to build tools for static analysis to check programs for good and complete error handling.
-
-
-### Schema
-
-```
-type Error struct {
-	code    String
-	message optional String
-	details optional {String:String}
-	cause	optional [Error]
-}
-```
-
-### Serializing
-
-Routable Errors are serialable as JSON.
-(They're also serializable... however else you like.  It's just strings and maps and lists!)
-
-The following are all examples of Routable Errors expressed in JSON:
-
-```json
-{"code":"foobar-error"}
-```
-
-```json
-{"code":"foobar-error", "message": "this is prose describing the problem"}
-```
-
-```json
-{"code":"foobar-error-gotzonked", "message": "help, I've been zonked during frobnozing!", "details":{"during":"frobnoz"}}
-```
-
-```json
-{"code":"foobar-error", "cause":[{"code": "subsys-error"}]}
-```
-
-
-### Printing
-
-Errors must be able to be printed in a human-readable way.
-(Printing JSON is fine and dandy, and is certainly _complete_,
-but can be excessively verbose and somewhat user-hostile,
-so printing JSON shouldn't be our only option.)
-
-The recommended format is:
-
-- if only `code` is present: `{{code}}`.
-- if `message` is present: `{{code}}: {{message}}`.
-- if `cause` is present, and there's one of them: `{{code}}: {{cause}}` (apply the printing function recursively).
-- if `message` and `cause` are both present: `{{code}}: {{message}}: {{cause}}`
-- if multiple values are in `cause`: this is undefined.  Consider emitting a list of codes, or just prose about details being elided.  Avoid overwhelming the user (or consider just showing JSON at this point).
-
-Why like this?
-
-- the code is always present, and is the clearest thing (think: end users should definitely be copy the error code into search queries!), so it absolutely must be visible.
-- it is not necessary to say "error " as a prefix, because codes will usually say that word already (and it would create stuttering when printing cause chains).
-- the message is already prose: there's nothing more that needs to be done with it.
-- other errors in the cause can just repeat these patterns.
-- the details map is not important to print, because the message prose should already contain the same information, contextualized.
-- remember: we don't need to print something that's parsable here, because we do still just have JSON for when we want that!
-
-
-### Recommended Conventions for Codes
-
-Error codes should be reasonably human readable, reasonably unique,
-and should avoid whitespace or other characters that could make them require quoting or escaping.
-
-We recomend that conventional error codes should be defined as all lowercase,
-and be composed of several hunks of ASCII text (`[0-9a-zA-Z]`) which are joined by dash characters ("`-`").
-
-The first hunk should be a package name or application name,
-or other reasonably unique and contextually relevant string.
-
-It is typical, but not required, to put the word "error" as a second hunk,
-especially if the other hunks in the code would not make it clear that string is describing a problematic situation.
-
-The last hunk should describe the specific error.
-
-More intermediate hunks can exist as desired.
-
-This concept of "hunks" is meant to to encourage uniqueness,
-while also acknowledging typical logical grouping patterns that are likely to emerge,
-but are recommendations only.
-
-Here are some example error code strings which follow the convention:
-
-```
-libzow-error-needconfig
-libzow-error-frobnozfailed
-wowapp-error-unknown
-wowapp-error-subsys-bonked
-wowapp-error-subsys-zonked
-wowapp-error-othersys-storagecorrupted
-```
-
-
-### Code vs Message vs Details
-
-The **code** is supposed to be short clearly a single term.
-
-The **message** is supposed to be prose, ready to show to a human user.
-
-The **details** are freetext, but as a key-value map, can be inspected more individually.
-Most of the details should be repeated in the message already, if they're important to a human user.
-
-Libraries for implementing ree patterns will typically have some sort of wrapper functions
-for developers to define a function that sets an error code,
-accepts some known detail parameters that are expected for this error code,
-and templates the details into a message, all at once.
-However, it's important to note that all this is done in a library _where the error is created_.
-None of this responsibility or complexity is foisted on any other application that wants to parse the error
-or display the error to a human.
-
-
-### Cause is a list
-
-Usually, the `cause`, if present, is a list with one element.
-
-A longer list is allowed, but rarely used.
-
-If you have an API that truly needs to report many errors, you can use the cause list,
-but beware that if more than one cause is present,
-while all ree libraries should _handle_ that data without loss,
-when it comes to printing, many ree libraries may choose not to print all of the causes anyway,
-for fear of overloading a human reader.
-
-
-### When not to use Ree
-
-You can probably pretty much always use `ree` conventions.
-
-Sometimes in high-performance internal APIs (e.g., think: something where you're returning `io.EOF`, etc),
-you will want to skip the message component or having any "details" maps.
-That's fine.
-
-
-
-Conventions in Golang
----------------------
-
-Packages are encouraged to make a list of constants of their error codes, like this:
-
-```
-package foo
-const (
-	ErrBar = "foo-error-bar"
-	ErrZaz = "foo-error-zaz"
-)
-```
-
-Packages are encouraged to make a habit of returning only the error codes from their own package from their functions.
-It is reasonable and should be normal to take any of the errors returned by functions you call outside your own package,
-and immediately route them into errors which use the codes from your own package.
-(Doing this means the enumeration of error codes that any given function returns should remain reasonably short,
-because it encourages examining errors and handling them close to where they occur whenever possible,
-or at least understanding and categorizing how they should affect a user of the package.
-Doing this habitually and ecosystemically should mean every package has a relatively limited and clear number of error codes to return,
-and overall make logical responses to error codes easier to build because there's only so much ever needing to be handled in one place.)
-
-
-Analysis tools in Golang
-------------------------
-
-See the `analysis` folder, which contains a distinct go module, and tooling.
-
-This tool will perform static analysis on golang code,
-and verify that errors follow the ree convention,
-that functions document which ree error codes they can return,
-and that those documents about error codes are truthful.
-
-More mechanically speaking:
-
-1. Look for functions which have a comment block which describes error codes;
-2. For such functions, statically analyze them (and any other functions they call) to see where data in errors returned actually originates from;
-3. Find the ree "code" in those error value origin sites;
-4. Ultimately, check that the error codes claimed in the docs are actually true.
-
-(The model used is one of simple tainting, but this is sufficient to reason about code that is reasonably well-structured.)
+- Analysis uses a taint model: all possible codes that a function can return are determined; then the analyzer requires that the documentation of the function states the same set, or emits warnings about the difference.
+- Analysis is mostly automatic and you control it by structuring your code flow to handle errors.  In cases where your code is more complex than the analyzer can understand, you can manually declare changes to the expected error set on return sites, if necessary.
+- Declarations of the errors a function returns are made in documentation on the function, in a simple and readable convention.
+- Works with any `error` type that has a `Code() string` method -- your project doesn't need any special dependencies to use this tool!
 
 This tooling should faciliate a conversation between the programmer and the analysis tool:
 the programmer writes a claim in their function docs,
@@ -248,15 +27,108 @@ If the programmer finds that they're having to document too many error codes,
 then they will be encouraged to refactor their code until the error handling becomes reasonable.
 
 
-The code in this package
-------------------------
+Quick Example
+-------------
 
-_You can actually ignore it._
+Here's a quick, very simplifed example of how code and structured comments are used
+to communicate with the analyzer tool and produce more reliable code:
 
-The code in this package implements the ree conventions.
+```go
+// This is a function that returns a Serum-style error.
+// The doc block below is validated by the analyzer tool!
+//
+// Errors:
+//
+//    - examples-error-foobar -- if things are foobar'd.
+//    - examples-error-discombobulated -- if caller should recombobulate.
+func DoSomething(param interface{}) error {
+    if param == nil {
+        return &Error{"examples-error-discombobulated"}
+    }
+	return &Error{"examples-error-foobar")
+}
 
-But it's not special.  You could write similar code in your own repo,
-and the ree analyzer tool will treat it exactly the same way.
+// This is a function that calls another function that returns a Serum-style error.
+// The analyzer will make sure that we document all the errors that
+// can emerge from this function, and the functions it called.
+//
+// Errors:
+//
+//    - examples-error-foobar -- comes from DoSomething.
+//    - examples-error-discombobulated -- also comes from DoSomething.
+func DoMoreThings() error {
+	return DoSomething(nil)
+}
+```
+
+If you forgot to list some errors?  The analyzer will warn you.
+
+If you listed errors that aren't really there?  The analyzer will warn you.
+
+If you add more errors to a function you wrote earlier, but forget to update either the docs or the handling logic in functions that use it?  _The analyzer will warn you!_
+
+Of course, this is just the beginning, and many styles of usage are supported.
+
+See the [USERGUIDE](USERGUIDE.md) for more!
+
+
+
+Adopting
+--------
+
+You should be able to start using the Serum error conventions, and this analyzer too, **incrementally** -- _anywhere_ in your stack.
+
+
+### Mechanically, how is it incremental?
+
+- The analysis tool uses the standard golang analysis libraries.
+	- This means you can start using it wherever you'd use `go vet` or other analysis tools, and treat it the same way.
+- There is no concrete error type you have to use in your code -- you just have to implement both `error` and `interface { Code() string }`, and the analyzer tool will detect it and figure it out!
+  	- This means you can start adopting Serum standards and using go-serum-analyzer without adding even a _single_ import to your package tree.  No dependency hell!  No real risk at all.
+- There is no required change to error interfaces you advertise publicly.  All your methods can still return the usual golang `error` interface.
+	- This means your public APIs don't change at all if you start adopting Serum standards and using go-serum-analyzer.  No breakage; not even visual surprises.  And any other tooling that looks for `error` types can continue to work the same as always, too.
+- You can use go-serum-analyzer on one package at a time.
+	- This means you don't have to adopt it in a whole project at once!  You can pick where to begin, and increase your usage slowly if it works well for you.
+- The go-serum-analyzer treats packages as natural boundaries.
+	- This means it's very natural to adopt the Serum conventions within one package, and massage any not-yet-Serum-style data at the site it calls out to other packages.  In fact, that's the normal way to work even when Serum conventions are fully established!  So the incremental adoption journey is actually the exact same as the full adoption final results!
+- Nothing is checked if a function doesn't contain the "Error:" block in the docs -- so you can start using it on whichever functions you prioritize, and adopt it on others at a rate of your choosing.
+
+Overall: it should be very easy to start using the Serum error convention without major up-front hurdles.
+It should also be very easy to start using this analzyer tool incrementally, and get good results.
+
+
+### Any recommendations about where to start using the Serum conventions and the analyzer?
+
+Anywhere is fair game!
+
+It's usually most fun to start in one place and spread out from there.
+
+So far, we've found it usually feels most rewarding to start at either the top or the bottom.
+Here, "top" means somewhere by a CLI or API,
+while "bottom" means somewhere packages that are farthest to the leaves of your dependency graph.
+
+Working from the top down is rewarding because it lets you start by enumerating errors in your public API first
+(which is a good practice anyway!), and then applying the analyzer tool and fixing issues it reports
+will make sure that your program is handling errors gracefully and making them eventually fit into the public API you defined.
+
+Working from the bottom up isn't necessarily as rewarding, but it's usually easier: because you usually have less diversity of incoming error causes,
+so it's relatively easy to inspect them and decide case-by-case what to do with them.
+Then, that rolls forward into helping you decide what errors still need to be reported by your package.
+It's still plenty of work, but the less you have to look deeply and recursively into code you're calling, the more tractable it is.
+
+Working from the middle out is possible, but tends to be a bit trickier.
+It's not that the analyzer tool works any differently!
+It's just that it can be tricky to decide if errors should be filtered differently
+in the package you're working on, or in the package below that it's calling, or the package above that the values are reported to.
+Usually those same questions are clearer to answer when either at the top or bottom of a stack,
+because there, you can fight on one front at a time, so to speak, which is easier.
+At the same time, you're not getting user-facing improvements yet, so it's less instantly rewarding.
+It can still be worth it to start this way in some codebases, though;
+perhaps you need to start increasing code quality _somewhere_, and the easiest place to patch happens to be in the middle; so be it!
+
+Use your best judgement!
+No matter where you start, it should be possible to make things better incrementally, so just pick a place and dig in!
+
 
 
 License

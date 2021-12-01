@@ -2,7 +2,7 @@
 package main
 
 import (
-	"github.com/warpfork/go-ree/analysis"
+	"github.com/serum-errors/go-serum-analyzer/analysis"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

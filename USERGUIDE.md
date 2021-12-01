@@ -9,9 +9,9 @@ The analyser in this package checks:
 
 How to run the analyser as stand-alone tool:
 
-* Installing reeverify: `go install ./cmd/reeverify`
+* Installing go-serum-analyzer: `go install ./cmd/go-serum-analyzer`
 * Change Directory to Target Project: `cd <target-path>`
-* Execute Analyser: `reeverify <package>`
+* Execute Analyser: `go-serum-analyzer <package>`
 
 ## Command Line Options
 
@@ -38,7 +38,8 @@ func (e *Error) Error() string { return e.TheCode }
 func (e *Error) Code() string  { return e.TheCode }
 ```
 
-`*Error` implements the `error` interface and also is a ree error because `interface { Code() string }` is implemented. Those two conditions are the only ones needed to be considered a ree error by the error code analysis.
+`*Error` implements the `error` interface and also is a Serum error because `interface { Code() string }` is implemented.
+Those two conditions are the only ones needed to be considered a Serum error by the error code analysis.
 
 More detail about error types can be found in a later section of this document.
 
@@ -197,7 +198,7 @@ func (c *Collection) AddAlt(item interface{}) error {
 
 ## Error Types
 
-To be considered a valid ree error a type must implement the following interfaces:
+To be considered a valid Serum error, a type must implement the following interfaces:
 
 * `error`, which is `interface { Error() string }`
 * `interface { Code() string }`

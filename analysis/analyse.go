@@ -8,11 +8,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/warpfork/go-ree/analysis/scc"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/go/types/typeutil"
+
+	"github.com/serum-errors/go-serum-analyzer/analysis/scc"
 )
 
 var logf = fmt.Printf
@@ -26,8 +27,8 @@ func init() {
 }
 
 var Analyzer = &analysis.Analyzer{
-	Name:     "reeverify",
-	Doc:      "Checks that any function that has a ree-style docstring enumerating error codes is telling the truth.",
+	Name:     "go-serum-analyzer",
+	Doc:      "Checks that any function that has a structued docstring enumerating Serum-style error codes is telling the truth.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      runVerify,
 	FactTypes: []analysis.Fact{
@@ -908,7 +909,7 @@ func findCodesAssignedToErrorCodeFieldInAssignment(pass *analysis.Pass, function
 
 // checkErrorTypeHasLegibleCode makes sure that the `Code() string` function
 // on a type either returns a constant or a single struct field.
-// If you want to write your own ree.Error, it should be this simple.
+// If you want to write your own error types and have them be recognized, it should be this simple.
 func checkErrorTypeHasLegibleCode(pass *analysis.Pass, seen ast.Expr) bool { // probably should return a lookup function.
 	typ := pass.TypesInfo.TypeOf(seen)
 	return types.Implements(typ, tReeError) || types.Implements(types.NewPointer(typ), tReeError)
