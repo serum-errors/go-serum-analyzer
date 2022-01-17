@@ -27,8 +27,8 @@ func init() {
 }
 
 var Analyzer = &analysis.Analyzer{
-	Name:     "go-serum-analyzer",
-	Doc:      "Checks that any function that has a structued docstring enumerating Serum-style error codes is telling the truth.",
+	Name:     "serum",
+	Doc:      "Checks that any function that has a structured docstring enumerating Serum-style error codes is telling the truth.",
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      runVerify,
 	FactTypes: []analysis.Fact{
