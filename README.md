@@ -130,6 +130,48 @@ Use your best judgement!
 No matter where you start, it should be possible to make things better incrementally, so just pick a place and dig in!
 
 
+Success Stories
+---------------
+
+One of the first projects to deploy the go-serum-analyzer "in the wild" was [Warpforge](https://github.com/warpfork/warpforge/).
+
+In very little time, we found the analyzer was replacing the equivalent of **thousands** of manual checks, and greatly increasing the quality of development in the packages that adopted it.
+
+**By the numbers**, we found:
+
+- 983 errorcode-sites verified by automation (meaning: error codes per function, in those functions that are explicitly annotated).
+- 59 functions were manually annotated to reach this result.
+- 174 functions in total were covered implicitly, since analysis covers all functions called by an annotated function.
+- (That means annotating 33% of functions was enough to attain the full effect!)
+
+**Qualitatively**, one contributor notes:
+
+> We were able start getting error codes and linting in place in one pass, then do a second pass to clean them up (with the advantage of now having the linter).
+> Having tools made it less daunting to improve iteratively!
+>
+> Trying to do the same kind of iterative improvements _without_ tool support has never seemed to work out well for us in golang before, because there's too much mental "cache invalidation" and manual review required, making it intractable -- so this was a big deal.
+>
+> Our package boundaries and code organization makes more sense now.  Having to think explicitly about how many error codes a function returned made us want to simplify it.  That turned into a good influence!
+>
+> We're also much happier about our docs.
+
+Another the contributor had this to say about it:
+
+> i don't like that this linter has to exist
+>
+> but i do like that it does exist
+
+((_Translation:_ it would be even better if this was a core tool!  But having it as a linter phase is better than not having it.))
+
+In terms of **observed adoption rate**:
+The Serum analyzer tool was added to CI in this project within the same day that Serum annotations were first introduced in some functions of some packages.
+Strict mode -- meaning public functions _without_ serum annotations are flagged as _errors_ -- was adopted only _three days_ later!
+
+Overall, we consider this a **rousing success**.
+The Serum Analyzer proved both useful and smoothly incrementally adoptable,
+and positively influenced the code quality _and_ the developer satisfaction within the adopting project.
+
+
 
 License
 -------
