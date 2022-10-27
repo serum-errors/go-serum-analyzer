@@ -1,0 +1,33 @@
+name: go-serum-analyzer
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
+    - name: Run Tests
+      run: go test ./...
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
+    - run: mkdir /tmp/bundle
+    - name: Build binaries
+      run: go build -o /tmp/bundle/ cmd/...
+    - name: Create release tarball
+      run: tar -C /tmp/bundle/ -czvf go-serum-analyzer.tgz .
+    - name: Archive release tarball
+      uses: actions/upload-artifact@v2
+      with:
+        name: go-serum-analyzer.tgz
+        path: go-serum-analyzer.tgz
