@@ -174,7 +174,7 @@ var tReeError = types.NewInterfaceType([]*types.Func{
 var tReeErrorWithCause = types.NewInterfaceType([]*types.Func{
 	tReeError.Method(0),
 	tReeError.Method(1),
-	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.NewNamed(types.NewTypeName(token.NoPos, nil, "error", tError), nil, nil))), false)),
+	types.NewFunc(token.NoPos, nil, "Cause", types.NewSignature(nil, nil, types.NewTuple(types.NewVar(token.NoPos, nil, "", types.Universe.Lookup("error").Type())), false)),
 }, nil).Complete()
 
 // isErrorCodeValid checks if the given error code is valid.
