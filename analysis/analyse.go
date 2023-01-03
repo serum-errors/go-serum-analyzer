@@ -805,7 +805,7 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Object]stru
 			newCodes := findErrorCodesInCallExpression(c, expr, function)
 			result = Union(result, newCodes)
 		default:
-			panic(fmt.Sprintf("destruct assignment should only originate from a call expression: type %T", expr))
+			panic(fmt.Sprintf("destructuring assignment is currently only supported from a call expression: found one in an expression of type %T", expr))
 		}
 	}
 
