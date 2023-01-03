@@ -25,6 +25,7 @@ func TestVerifyAnalyzer(t *testing.T) {
 		"multifile",
 		"multipackage/inner1", "multipackage",
 		"recursion",
+		"typecast",
 	} {
 		t.Run(pattern, func(t *testing.T) {
 			pattern := pattern
@@ -63,13 +64,6 @@ func TestNotImplemented(t *testing.T) {
 		pattern  string
 		expected []string
 	}{
-		{
-			pattern: "typecast",
-			expected: []string{
-				`typecast/cast.go:7:9: unexpected diagnostic: function "StringError" in dot-imported package does not declare error codes`,
-				`typecast/cast.go:6:1: unexpected diagnostic: function "TypeCast" has a mismatch of declared and actual error codes: unused codes: [string-error]`,
-			},
-		},
 		{
 			pattern: "dereference_assignment",
 			expected: []string{
