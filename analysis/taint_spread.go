@@ -10,7 +10,7 @@ import (
 type (
 	taintSpreadResult struct {
 		expressions        []ast.Expr             // expressions that represent the taint, or nil
-		destructAssignment []*taintSpreadDestruct // taint originating from destructirung assignments, or nil
+		destructAssignment []*taintSpreadDestruct // taint originating from destructing assignments, or nil
 		identOutOfScope    []*ast.Ident           // every used ident that was not defined in functio scope, or nil
 	}
 

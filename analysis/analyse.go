@@ -592,18 +592,27 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Object]struct
 		if expr.Op == token.AND && types.Implements(pass.TypesInfo.TypeOf(expr), tError) {
 			if ident, ok := astutil.Unparen(expr.X).(*ast.Ident); ok {
 				return findErrorCodesFromIdentTaint(c, visitedIdents, ident, startingFunc)
-			} else {
-				return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 			}
+			return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
 		}
 
 		// If it's not fulfilling the error interface it's not supported
-		pass.ReportRangef(expr, "expression does not implement valid error type")
+		pass.ReportRangef(expr, "expression %T does not implement valid error type", expr)
 		return nil
 	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
 		return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
-	default:
+	case *ast.TypeAssertExpr:
+		if expr.Type == nil {
+			pass.ReportRangef(expr, "type assertion switch is not supported in error code analysis")
+			return nil
+		}
+		pass.ReportRangef(expr, "type assertion is not supported in error code analysis")
+		return nil
+	case *ast.IndexExpr:
 		pass.ReportRangef(expr, "expression is not supported in error code analysis")
+		return nil
+	default:
+		pass.ReportRangef(expr, "expression %T is not supported in error code analysis", expr)
 		return nil
 	}
 }
@@ -779,25 +788,25 @@ func findErrorCodesFromIdentTaint(c *context, visitedIdents map[*ast.Object]stru
 	}
 
 	for _, destruct := range taintResult.destructAssignment {
-		callExpr, ok := astutil.Unparen(destruct.source).(*ast.CallExpr)
-		if !ok {
-			panic("should be unreachable: destructirung assignment should only originate from a call expression.")
-		}
+		switch expr := astutil.Unparen(destruct.source).(type) {
+		case *ast.TypeAssertExpr:
+			newCodes := findErrorCodesInExpression(c, visitedIdents, expr.X, function)
+			result = Union(result, newCodes)
+		case *ast.CallExpr:
+			funType := pass.TypesInfo.TypeOf(expr.Fun).(*types.Signature) // function of call expression should always be of type signature.
 
-		funType, ok := pass.TypesInfo.TypeOf(callExpr.Fun).(*types.Signature)
-		if !ok {
-			panic("should be unreachable: function of call expression should always be of type signature.")
-		}
+			// Destructuring mode.
+			// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
+			if destruct.position != funType.Results().Len()-1 {
+				pass.ReportRangef(destruct.target, "unsupported: tracking error codes for function call with error as non-last return argument")
+				continue
+			}
 
-		// Destructuring mode.
-		// We're going to make some crass simplifications here, and say... if this is anything other than the last arg, you're not supported.
-		if destruct.position != funType.Results().Len()-1 {
-			pass.ReportRangef(destruct.target, "unsupported: tracking error codes for function call with error as non-last return argument")
-			continue
+			newCodes := findErrorCodesInCallExpression(c, expr, function)
+			result = Union(result, newCodes)
+		default:
+			panic(fmt.Sprintf("destruct assignment should only originate from a call expression: type %T", expr))
 		}
-
-		newCodes := findErrorCodesInCallExpression(c, callExpr, function)
-		result = Union(result, newCodes)
 	}
 
 	return result
