@@ -1,6 +1,11 @@
 name: go-serum-analyzer
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - 'master'
+      - 'main'
+  pull_request:
 
 jobs:
   test:

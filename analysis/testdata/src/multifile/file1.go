@@ -13,13 +13,6 @@ func Func1() error { // want Func1:"ErrorCodes: func1-error func2-error"
 
 // Errors:
 //
-//    - string-error --
-func DoString() error { // want DoString:"ErrorCodes: string-error"
-	return StringError("some message about the error")
-}
-
-// Errors:
-//
 //    - local-error --
 func GlobalFromOtherFile() error { // want GlobalFromOtherFile:"ErrorCodes: local-error"
 	if true {

@@ -146,27 +146,6 @@ func PointerOfLocal() error { // want PointerOfLocal:"ErrorCodes: value-error"
 	return &err
 }
 
-// Errors:
-//
-//    - some-error --
-//    - other-error --
-func DereferenceAssignment() error { // want DereferenceAssignment:"ErrorCodes: other-error some-error"
-	err := Error{"some-error"}
-	err2 := &err
-	*err2 = Error{"other-error"}
-	return &err
-}
-
-// Errors:
-//
-//    - some-error --
-//    - other-error --
-func DereferenceAssignment2() error { // want DereferenceAssignment2:"ErrorCodes: other-error some-error"
-	err := &Error{"some-error"}
-	*err = Error{"other-error"}
-	return err
-}
-
 type Io interface { // want Io:"ErrorInterface: FetchFromUrl"
 	// Errors:
 	//

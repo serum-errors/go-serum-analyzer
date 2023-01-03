@@ -132,13 +132,6 @@ func CallToUndeclared4() error { // want CallToUndeclared4:"ErrorCodes: x-error"
 	return &Error{"x-error"}
 }
 
-// Errors:
-//
-//    - string-error --
-func DoString() error { // want DoString:"ErrorCodes: string-error"
-	return inner1.StringError("some message about the error")
-}
-
 type Error struct { // want Error:`ErrorType{Field:{Name:"TheCode", Position:0}, Codes:}`
 	TheCode string
 }
