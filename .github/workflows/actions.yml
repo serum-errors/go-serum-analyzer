@@ -1,0 +1,46 @@
+name: go-serum-analyzer
+
+on:
+  push:
+    branches:
+      - 'master'
+      - 'main'
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      max-parallel: 2
+      matrix:
+        go-version: ['1.17', 'stable']
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+    - name: Run Tests
+      run: go test ./...
+  build:
+    strategy:
+      max-parallel: 2
+      matrix:
+        go-version: ['1.17', 'stable']
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ${{ matrix.go-version }}
+    - run: mkdir /tmp/bundle
+    - name: Build binaries
+      run: go build -o /tmp/bundle/ cmd/...
+    - name: Create release tarball
+      run: tar -C /tmp/bundle/ -czvf go-serum-analyzer.tgz .
+    - name: Archive release tarball
+      uses: actions/upload-artifact@v3
+      with:
+        name: go-serum-analyzer-${{ matrix.go-version }}.tgz
+        path: go-serum-analyzer-${{ matrix.go-version }}.tgz

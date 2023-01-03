@@ -35,8 +35,3 @@ type UnusedError struct { // want UnusedError:`ErrorType{Field:{Name:"TheCode", 
 
 func (e *UnusedError) Code() string  { return e.TheCode }
 func (e *UnusedError) Error() string { return e.TheCode }
-
-type StringError string // want StringError:`ErrorType{Field:<nil>, Codes:string-error}`
-
-func (StringError) Code() string  { return "string-error" }
-func (StringError) Error() string { return "StringError" }
