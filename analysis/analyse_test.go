@@ -77,6 +77,21 @@ func TestNotImplemented(t *testing.T) {
 				`dereference_assignment/assign.go:18:1: unexpected diagnostic: function "DereferenceAssignment2" has a mismatch of declared and actual error codes: unused codes: [other-error]`,
 			},
 		},
+		{
+			pattern: "type_assertion",
+			expected: []string{
+				`type_assertion/assert.go:6:1: unexpected diagnostic: function "TypeAssertionMethod" has a mismatch of declared and actual error codes: unused codes: [interface-error]`,
+				`type_assertion/assert.go:8:9: unexpected diagnostic: type assertion is not supported in error code analysis`,
+				`type_assertion/assert.go:14:1: unexpected diagnostic: function "TypeAssertionInterface" has a mismatch of declared and actual error codes: unused codes: [empty-interface-error]`,
+				`type_assertion/assert.go:15:9: unexpected diagnostic: type assertion is not supported in error code analysis`,
+				`type_assertion/assert.go:21:1: unexpected diagnostic: function "TypeAssertion" has a mismatch of declared and actual error codes: unused codes: [standard-error]`,
+				`type_assertion/assert.go:22:9: unexpected diagnostic: type assertion is not supported in error code analysis`,
+				`type_assertion/assert.go:47:1: unexpected diagnostic: function "TypeAssertionSwitch" has a mismatch of declared and actual error codes: unused codes: [maybe-error]`,
+				`type_assertion/assert.go:49:14: unexpected diagnostic: type assertion switch is not supported in error code analysis`,
+				`type_assertion/assert.go:63:1: unexpected diagnostic: function "TypeAssertionSwitchFromNonError" has a mismatch of declared and actual error codes: unused codes: [empty-interface-error]`,
+				`type_assertion/assert.go:65:16: unexpected diagnostic: type assertion switch is not supported in error code analysis`,
+			},
+		},
 	} {
 		t.Run(testcase.pattern, func(t *testing.T) {
 			testcase := testcase
