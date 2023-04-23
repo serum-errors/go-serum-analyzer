@@ -601,6 +601,8 @@ func findErrorCodesInExpression(c *context, visitedIdents map[*ast.Object]struct
 		return nil
 	case *ast.CompositeLit, *ast.BasicLit: // Actual value creation!
 		return extractErrorCodesFromAffector(pass, lookup, startingFunc, expr)
+	case *ast.SelectorExpr:
+		return findErrorCodesFromIdentTaint(c, visitedIdents, expr.Sel, startingFunc)
 	case *ast.TypeAssertExpr:
 		if expr.Type == nil {
 			pass.ReportRangef(expr, "type assertion switch is not supported in error code analysis")
